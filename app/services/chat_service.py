@@ -25,11 +25,15 @@ class ChatService:
     
     def __init__(self):
         # Bedrock 클라이언트 설정
+        # 1. 표준 AWS 환경변수 사용
+        aws_access_key = settings.AWS_ACCESS_KEY_ID or settings.AWS_BEDROCK_API_KEY_ID
+        aws_secret_key = settings.AWS_SECRET_ACCESS_KEY or settings.AWS_BEDROCK_API_KEY_SECRET
+        
         bedrock_client = boto3.client(
             "bedrock-runtime",
             region_name=settings.AWS_DEFAULT_REGION,
-            aws_access_key_id=settings.AWS_BEDROCK_API_KEY_ID,
-            aws_secret_access_key=settings.AWS_BEDROCK_API_KEY_SECRET,
+            aws_access_key_id=aws_access_key,
+            aws_secret_access_key=aws_secret_key,
         )
         
         self.llm = ChatBedrock(

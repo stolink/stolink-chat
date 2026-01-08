@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str
     
     # AWS Bedrock 설정 (Claude 3 Haiku)
+    # 표준 AWS 변수명 지원
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
+    # 기존 변수명 하위 호환
     AWS_BEDROCK_API_KEY_ID: str = ""
     AWS_BEDROCK_API_KEY_SECRET: str = ""
     AWS_DEFAULT_REGION: str = "us-east-1"
@@ -50,6 +54,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        extra = "ignore"  # .env에 정의되지 않은 변수 무시
 
 settings = Settings()
 
