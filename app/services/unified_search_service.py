@@ -1,10 +1,17 @@
-"""Neo4j와 PostgreSQL 벡터 검색 결과를 통합하는 서비스"""
+"""Multi-Source RAG 통합 검색 서비스.
+
+Agent가 분석/저장한 데이터를 RAG에서 활용합니다.
+
+데이터 소스:
+- sections: 본문 청크 (벡터 검색, Gemini 3072차원)
+- characters: 캐릭터 정보 (텍스트 검색)
+- events: 이벤트 정보 (텍스트 검색)
+"""
 
 import asyncio
 import logging
 from typing import List, Dict, Any
 
-from app.services.neo4j_service import neo4j_service
 from app.services.postgres_service import postgres_service
 from app.config import settings
 
@@ -12,136 +19,103 @@ logger = logging.getLogger(__name__)
 
 
 class UnifiedSearchService:
-    """Neo4j(청크 단위)와 PostgreSQL(문장 단위) 벡터 검색 결과를 병합
-
-    두 데이터소스에서 병렬로 검색한 후,
-    유사도 점수 기준으로 통합 정렬하여 반환합니다.
+    """Multi-Source RAG 통합 검색 서비스.
+    
+    sections(벡터) + characters(텍스트) + events(텍스트) 병렬 검색 후 결과 병합.
     """
 
-    async def hybrid_search(
+    async def search(
         self,
         project_id: str,
         query_embedding: List[float],
-        neo4j_limit: int = None,
-        postgres_limit: int = None,
-        final_limit: int = None
-    ) -> List[Dict[str, Any]]:
-        """두 데이터소스에서 병렬 검색 후 유사도 순으로 병합
-
+        query_text: str,
+        sections_limit: int = None,
+        characters_limit: int = None,
+        events_limit: int = None
+    ) -> Dict[str, Any]:
+        """Multi-Source 검색 수행.
+        
         Args:
             project_id: 프로젝트 ID
-            query_embedding: 쿼리 임베딩 벡터 (1536차원)
-            neo4j_limit: Neo4j에서 가져올 청크 수 (기본: settings.SEARCH_NEO4J_LIMIT)
-            postgres_limit: PostgreSQL에서 가져올 문장 수 (기본: settings.SEARCH_POSTGRES_LIMIT)
-            final_limit: 최종 반환할 결과 수 (기본: settings.SEARCH_FINAL_LIMIT)
-
+            query_embedding: 쿼리 임베딩 (3072차원)
+            query_text: 원본 텍스트 쿼리 (텍스트 검색용)
+            *_limit: 각 소스별 결과 수
+        
         Returns:
-            병합된 검색 결과 (유사도 내림차순):
-            [{"id": str, "content": str, "score": float, "source": str, "source_type": str}, ...]
+            {
+                "sections": [...],      # 본문 맥락
+                "characters": [...],    # 관련 캐릭터
+                "events": [...]         # 관련 이벤트
+            }
         """
-        neo4j_limit = neo4j_limit or settings.SEARCH_NEO4J_LIMIT
-        postgres_limit = postgres_limit or settings.SEARCH_POSTGRES_LIMIT
-        final_limit = final_limit or settings.SEARCH_FINAL_LIMIT
+        sections_limit = sections_limit or settings.SEARCH_SECTIONS_LIMIT
+        characters_limit = characters_limit or settings.SEARCH_CHARACTERS_LIMIT
+        events_limit = events_limit or settings.SEARCH_EVENTS_LIMIT
 
         # 병렬 검색 실행
-        # Neo4j search is now optional/secondary as embeddings are primarily in Postgres
-        neo4j_task = asyncio.create_task(
-             self._search_neo4j(project_id, query_embedding, neo4j_limit)
+        section_task = postgres_service.search_sections(
+            project_id, query_embedding, sections_limit
         )
-        postgres_task = asyncio.create_task(
-            postgres_service.vector_search(project_id, query_embedding, postgres_limit)
+        character_task = postgres_service.search_characters(
+            project_id, query_text, characters_limit
+        )
+        event_task = postgres_service.search_events(
+            project_id, query_text, events_limit
         )
 
-        neo4j_results, postgres_results = await asyncio.gather(
-            neo4j_task,
-            postgres_task,
+        sections, characters, events = await asyncio.gather(
+            section_task, character_task, event_task,
             return_exceptions=True
         )
 
         # 예외 처리
-        if isinstance(neo4j_results, Exception):
-            logger.error(f"Neo4j search error: {neo4j_results}")
-            neo4j_results = []
-        if isinstance(postgres_results, Exception):
-            logger.error(f"PostgreSQL search error: {postgres_results}")
-            postgres_results = []
+        if isinstance(sections, Exception):
+            logger.error(f"Sections search error: {sections}")
+            sections = []
+        if isinstance(characters, Exception):
+            logger.error(f"Characters search error: {characters}")
+            characters = []
+        if isinstance(events, Exception):
+            logger.error(f"Events search error: {events}")
+            events = []
 
-        # 결과 통합 및 정규화
-        unified = self._normalize_and_merge(neo4j_results, postgres_results)
-
-        # Threshold Filtering
-        unified = [item for item in unified if item["score"] >= settings.SEARCH_THRESHOLD]
-
-        # 유사도 순 정렬 후 상위 N개 반환
-        unified.sort(key=lambda x: x["score"], reverse=True)
+        # Threshold 필터링 (sections만, 벡터 검색 결과이므로)
+        sections = [s for s in sections if s.get("score", 0) >= settings.SEARCH_THRESHOLD]
 
         logger.info(
-            f"Hybrid search: Neo4j={len(neo4j_results)}, "
-            f"PostgreSQL={len(postgres_results)}, "
-            f"Merged={len(unified[:final_limit])}"
+            f"Multi-source search: sections={len(sections)}, "
+            f"characters={len(characters)}, events={len(events)}"
         )
 
-        return unified[:final_limit]
+        return {
+            "sections": sections,
+            "characters": characters,
+            "events": events
+        }
 
-    async def _search_neo4j(
+    async def search_sections_only(
         self,
         project_id: str,
         query_embedding: List[float],
-        limit: int
+        limit: int = None
     ) -> List[Dict[str, Any]]:
-        """Neo4j 검색을 비동기로 래핑 (동기 드라이버를 스레드풀에서 실행)"""
-        loop = asyncio.get_event_loop()
-        results = await loop.run_in_executor(
-            None,
-            neo4j_service.vector_search,
-            project_id,
-            query_embedding,
-            limit
+        """Sections만 검색 (심플 모드).
+        
+        캐릭터/이벤트 텍스트 검색 없이 벡터 검색만 수행.
+        """
+        limit = limit or settings.SEARCH_FINAL_LIMIT
+
+        results = await postgres_service.search_sections(
+            project_id=project_id,
+            query_embedding=query_embedding,
+            limit=limit
         )
 
-        # 소스 타입 추가
-        for r in results:
-            r["source"] = "neo4j"
-            r["id"] = r.pop("chunk_uuid", r.get("uuid", ""))
+        # Threshold 필터링
+        filtered = [r for r in results if r.get("score", 0) >= settings.SEARCH_THRESHOLD]
+        filtered.sort(key=lambda x: x["score"], reverse=True)
 
-        return results
-
-    def _normalize_and_merge(
-        self,
-        neo4j_results: List[Dict],
-        postgres_results: List[Dict]
-    ) -> List[Dict[str, Any]]:
-        """두 소스의 결과를 통합된 형식으로 정규화
-
-        Note:
-            두 시스템 모두 cosine similarity 사용하므로
-            점수 스케일이 동일 (0~1, 높을수록 유사)
-        """
-        unified = []
-
-        # Neo4j 결과 정규화
-        for item in neo4j_results:
-            unified.append({
-                "id": item.get("id", item.get("chunk_uuid", "")),
-                "content": item.get("content", ""),
-                "score": float(item.get("score", 0.0)),
-                "source": "neo4j",
-                "source_type": "chunk",
-                "metadata": item.get("metadata", {})
-            })
-
-        # PostgreSQL 결과 정규화
-        for item in postgres_results:
-            unified.append({
-                "id": item.get("sentence_id", ""),
-                "content": item.get("content", ""),
-                "score": float(item.get("score", 0.0)),
-                "source": "postgresql",
-                "source_type": "sentence",
-                "metadata": item.get("metadata", {})
-            })
-
-        return unified
+        return filtered[:limit]
 
 
 # 싱글톤 인스턴스
