@@ -1,6 +1,10 @@
-"""PostgreSQL pgvector 기반 문장 임베딩 검색 서비스"""
+"""PostgreSQL pgvector 기반 벡터 검색 서비스.
+
+Agent가 저장한 sections, characters, events 테이블을 검색합니다.
+"""
 
 import asyncpg
+import json
 import logging
 from typing import List, Dict, Any, Optional
 
@@ -10,10 +14,12 @@ logger = logging.getLogger(__name__)
 
 
 class PostgresService:
-    """PostgreSQL pgvector를 사용한 문장 단위 벡터 검색 서비스
-
-    외부 시스템이 저장한 sentence_embeddings 테이블에서
-    유사도 기반 검색을 수행합니다.
+    """PostgreSQL pgvector 기반 Multi-Source 검색 서비스.
+    
+    데이터 소스:
+    - sections: 본문 청크 (벡터 검색, 3072차원)
+    - characters: 캐릭터 정보 (텍스트 검색)
+    - events: 이벤트 정보 (텍스트 검색)
     """
 
     def __init__(self) -> None:
@@ -31,7 +37,6 @@ class PostgresService:
             logger.info("PostgreSQL connection pool initialized")
         except Exception as e:
             logger.error(f"Failed to initialize PostgreSQL pool: {e}")
-            # PostgreSQL 연결 실패해도 앱은 계속 동작 (Neo4j만 사용)
             self.pool = None
 
     async def close(self) -> None:
@@ -40,63 +45,261 @@ class PostgresService:
             await self.pool.close()
             logger.info("PostgreSQL connection pool closed")
 
-    async def vector_search(
+    # =========================================================================
+    # Section 검색 (벡터 검색, 3072차원)
+    # =========================================================================
+
+    async def search_sections(
         self,
         project_id: str,
         query_embedding: List[float],
-        limit: int = 5
+        limit: int = None
     ) -> List[Dict[str, Any]]:
-        """pgvector를 사용한 유사도 검색
-
+        """sections 테이블에서 벡터 유사도 검색.
+        
+        Agent가 분석한 섹션 데이터를 검색합니다.
+        
         Args:
-            project_id: 프로젝트 ID (필터링용)
-            query_embedding: 쿼리 임베딩 벡터 (1536차원)
+            project_id: 프로젝트 ID
+            query_embedding: 쿼리 임베딩 벡터 (3072차원)
             limit: 반환할 결과 수
-
+        
         Returns:
-            검색 결과 리스트:
-            [{"sentence_id": str, "content": str, "score": float, "metadata": dict}, ...]
+            [{"section_id": str, "content": str, "score": float, 
+              "nav_title": str, "related_characters": list, "related_events": list}, ...]
         """
+        limit = limit or settings.SEARCH_SECTIONS_LIMIT
+        
         if not self.pool:
-            logger.warning("PostgreSQL pool not available, skipping search")
+            logger.warning("PostgreSQL pool not available")
             return []
 
-        # pgvector cosine distance: 1 - cosine_similarity
-        # 따라서 score = 1 - distance로 변환하여 유사도로 표현
         query = """
             SELECT
-                sentence_id,
-                content,
-                1 - (embedding <=> $1::vector) AS score,
-                metadata
-            FROM sentence_embeddings
-            WHERE project_id = $2
-            ORDER BY embedding <=> $1::vector
+                s.id AS section_id,
+                s.content,
+                s.nav_title,
+                s.related_characters_json,
+                s.related_events_json,
+                1 - (s.embedding <=> $1::vector) AS score
+            FROM sections s
+            JOIN documents d ON s.document_id = d.id
+            WHERE d.project_id = $2::uuid
+              AND s.embedding IS NOT NULL
+            ORDER BY s.embedding <=> $1::vector
             LIMIT $3
         """
 
         try:
             async with self.pool.acquire() as conn:
-                # 벡터를 pgvector 형식 문자열로 변환
                 embedding_str = f"[{','.join(map(str, query_embedding))}]"
                 rows = await conn.fetch(query, embedding_str, project_id, limit)
 
-                return [
-                    {
-                        "sentence_id": row["sentence_id"],
+                results = []
+                for row in rows:
+                    # JSON 파싱
+                    related_chars = []
+                    related_evts = []
+                    try:
+                        if row["related_characters_json"]:
+                            related_chars = json.loads(row["related_characters_json"])
+                    except:
+                        pass
+                    try:
+                        if row["related_events_json"]:
+                            related_evts = json.loads(row["related_events_json"])
+                    except:
+                        pass
+
+                    results.append({
+                        "section_id": str(row["section_id"]),
                         "content": row["content"],
+                        "nav_title": row["nav_title"] or "Untitled",
                         "score": float(row["score"]),
-                        "metadata": row["metadata"] if row["metadata"] else {},
-                        "source": "postgresql"
-                    }
-                    for row in rows
-                ]
+                        "related_characters": related_chars,
+                        "related_events": related_evts,
+                        "source": "sections",
+                        "source_type": "section"
+                    })
+
+                logger.info(f"Sections search: {len(results)} results")
+                return results
+
         except asyncpg.UndefinedTableError:
-            logger.warning("sentence_embeddings table does not exist yet")
+            logger.warning("sections table does not exist")
             return []
         except Exception as e:
-            logger.error(f"PostgreSQL vector search failed: {e}")
+            logger.error(f"Sections search failed: {e}")
             return []
+
+    # =========================================================================
+    # Character 검색 (텍스트 검색)
+    # =========================================================================
+
+    async def search_characters(
+        self,
+        project_id: str,
+        query: str,
+        limit: int = None
+    ) -> List[Dict[str, Any]]:
+        """characters 테이블에서 텍스트 검색.
+        
+        Args:
+            project_id: 프로젝트 ID
+            query: 검색 쿼리 (캐릭터 이름, 역할, 백스토리 등)
+            limit: 반환할 결과 수
+        
+        Returns:
+            [{"id": uuid, "name": str, "role": str, "backstory": str, ...}, ...]
+        """
+        limit = limit or settings.SEARCH_CHARACTERS_LIMIT
+        
+        if not self.pool:
+            return []
+
+        sql = """
+            SELECT 
+                id, 
+                name, 
+                role, 
+                backstory,
+                description,
+                appearance_json,
+                personality_json
+            FROM characters
+            WHERE project_id = $1::uuid
+              AND (
+                name ILIKE $2 
+                OR backstory ILIKE $2
+                OR role ILIKE $2
+                OR description ILIKE $2
+              )
+            LIMIT $3
+        """
+        
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(sql, project_id, f"%{query}%", limit)
+                
+                results = []
+                for row in rows:
+                    char_data = {
+                        "id": str(row["id"]),
+                        "name": row["name"],
+                        "role": row["role"],
+                        "backstory": row["backstory"],
+                        "description": row["description"],
+                        "source": "characters",
+                        "source_type": "character"
+                    }
+                    
+                    # JSON 필드 파싱
+                    try:
+                        if row["appearance_json"]:
+                            char_data["appearance"] = json.loads(row["appearance_json"])
+                    except:
+                        pass
+                    try:
+                        if row["personality_json"]:
+                            char_data["personality"] = json.loads(row["personality_json"])
+                    except:
+                        pass
+                    
+                    results.append(char_data)
+                
+                logger.info(f"Characters search: {len(results)} results for '{query}'")
+                return results
+                
+        except asyncpg.UndefinedTableError:
+            logger.warning("characters table does not exist")
+            return []
+        except Exception as e:
+            logger.error(f"Characters search failed: {e}")
+            return []
+
+    # =========================================================================
+    # Event 검색 (텍스트 검색)
+    # =========================================================================
+
+    async def search_events(
+        self,
+        project_id: str,
+        query: str,
+        limit: int = None
+    ) -> List[Dict[str, Any]]:
+        """events 테이블에서 텍스트 검색.
+        
+        Args:
+            project_id: 프로젝트 ID
+            query: 검색 쿼리
+            limit: 반환할 결과 수
+        
+        Returns:
+            [{"event_id": str, "name": str, "description": str, ...}, ...]
+        """
+        limit = limit or settings.SEARCH_EVENTS_LIMIT
+        
+        if not self.pool:
+            return []
+
+        sql = """
+            SELECT 
+                id,
+                event_id,
+                name,
+                description,
+                narrative_summary,
+                event_type,
+                participants_json
+            FROM events
+            WHERE project_id = $1::uuid
+              AND (
+                name ILIKE $2 
+                OR description ILIKE $2
+                OR narrative_summary ILIKE $2
+              )
+            LIMIT $3
+        """
+        
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(sql, project_id, f"%{query}%", limit)
+                
+                results = []
+                for row in rows:
+                    event_data = {
+                        "id": str(row["id"]),
+                        "event_id": row["event_id"],
+                        "name": row["name"],
+                        "description": row["description"],
+                        "narrative_summary": row["narrative_summary"],
+                        "event_type": row["event_type"],
+                        "source": "events",
+                        "source_type": "event"
+                    }
+                    
+                    # 참여자 JSON 파싱
+                    try:
+                        if row["participants_json"]:
+                            event_data["participants"] = json.loads(row["participants_json"])
+                    except:
+                        pass
+                    
+                    results.append(event_data)
+                
+                logger.info(f"Events search: {len(results)} results for '{query}'")
+                return results
+                
+        except asyncpg.UndefinedTableError:
+            logger.warning("events table does not exist")
+            return []
+        except Exception as e:
+            logger.error(f"Events search failed: {e}")
+            return []
+
+    # =========================================================================
+    # 헬스체크
+    # =========================================================================
 
     async def health_check(self) -> bool:
         """PostgreSQL 연결 상태 확인"""
