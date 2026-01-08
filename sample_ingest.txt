@@ -1,0 +1,7 @@
+Test Chapter 1.
+
+This is the first paragraph of the test file. It should be ingested as a single chunk.
+
+This is the second paragraph. It contains some more text to verify that the splitting works correctly.
+
+Final paragraph here.

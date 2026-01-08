@@ -1,0 +1,198 @@
+{
+  "project_id": "test-cyberpunk-01",
+  "user_id": "test-user-001",
+
+  "editor_chunks": [
+    {
+      "chunk_uuid": "chunk-001",
+      "content": "진하는 산성비가 내리는 하층 거주구 뒷골목에 서 있었다. 왼손목의 홀로그램 인터페이스에서 ARIA의 목소리가 들려왔다. '이 의뢰는 위험해요, 진하. 한그룹과 관련된 건 모두 위험합니다.' 하지만 진하는 빚쟁이들의 독촉 메시지를 떠올리며 인터페이스를 껐다.",
+      "metadata": {
+        "chapter": "1",
+        "scene": "opening",
+        "characters": ["진하", "ARIA"],
+        "location": "하층 거주구"
+      }
+    },
+    {
+      "chunk_uuid": "chunk-002",
+      "content": "세라는 자신이 안드로이드라는 사실을 받아들이기 어려웠다. 거울에 비친 모습은 너무나 완벽했다. 한채린이라는 이름, 한그룹 회장의 딸이라는 기억, 사고로 죽었다는 뉴스까지. 엘리시움 프로젝트의 첫 번째 성공 사례. 그것이 그녀의 정체였다.",
+      "metadata": {
+        "chapter": "1",
+        "scene": "sera_awakening",
+        "characters": ["세라"],
+        "location": "연구소"
+      }
+    },
+    {
+      "chunk_uuid": "chunk-003",
+      "content": "리사는 3년 전 진하를 떠났다. 배신이라고 불렸지만, 실제로는 진하를 보호하기 위한 선택이었다. 기억 거래 조직의 브로커 유민재가 진하를 노리고 있었기 때문이다. 그녀는 해커로서의 실력을 이용해 조직의 추적을 피해왔다.",
+      "metadata": {
+        "chapter": "2",
+        "scene": "lisa_backstory",
+        "characters": ["리사", "유민재", "진하"],
+        "location": "unknown"
+      }
+    },
+    {
+      "chunk_uuid": "chunk-004",
+      "content": "네오서울의 하늘은 항상 네온빛으로 물들어 있었다. 거대한 초고층 빌딩들 사이로 에어카가 날아다니고, 거리에는 홀로그램 광고가 번쩍였다. 하지만 하층 거주구는 달랐다. 산성비가 고인 골목, 고장난 네온사인, 절망에 찌든 사람들의 눈빛.",
+      "metadata": {
+        "chapter": "1",
+        "scene": "world_description",
+        "characters": [],
+        "location": "네오서울"
+      }
+    },
+    {
+      "chunk_uuid": "chunk-005",
+      "content": "유민재는 기억 거래 조직에서 가장 뛰어난 브로커였다. 그는 세라의 의식 데이터가 얼마나 가치 있는지 알고 있었다. 한그룹 회장의 딸, 엘리시움 프로젝트의 핵심 기술이 담긴 존재. 그녀를 손에 넣으면 조직 내에서의 입지가 달라질 것이다.",
+      "metadata": {
+        "chapter": "2",
+        "scene": "antagonist_intro",
+        "characters": ["유민재", "세라"],
+        "location": "unknown"
+      }
+    },
+    {
+      "chunk_uuid": "chunk-006",
+      "content": "진하와 세라의 첫 만남은 우연이 아니었다. 세라가 탐정을 고용한 것이다. '내 과거를 찾아주세요. 내가 정말 한채린인지, 아니면 그저 복제된 기억을 가진 기계인지.' 진하는 그녀의 눈에서 진짜 고통을 보았다. 안드로이드도 고통을 느낄 수 있는 걸까?",
+      "metadata": {
+        "chapter": "3",
+        "scene": "first_meeting",
+        "characters": ["진하", "세라"],
+        "location": "진하의 사무실"
+      }
+    },
+    {
+      "chunk_uuid": "chunk-007",
+      "content": "ARIA는 진하의 뇌에 이식된 AI 임플란트였다. 그녀는 진하의 파트너이자 유일한 친구였다. '진하, 세라의 신호를 추적했어요. 유민재가 그녀를 찾았습니다. 서둘러야 해요.' 진하는 낡은 권총을 챙기며 문을 박차고 나갔다.",
+      "metadata": {
+        "chapter": "4",
+        "scene": "chase_begins",
+        "characters": ["진하", "ARIA", "세라", "유민재"],
+        "location": "하층 거주구"
+      }
+    },
+    {
+      "chunk_uuid": "chunk-008",
+      "content": "한그룹의 엘리시움 프로젝트는 인류의 불멸을 약속했다. 의식을 디지털화하여 안드로이드 바디로 이전하는 기술. 세라는 그 첫 번째 피험자였다. 하지만 프로젝트의 진짜 목적은 따로 있었다. 부유층을 위한 영원한 삶, 그리고 가난한 자들의 의식을 팔아넘기는 사업.",
+      "metadata": {
+        "chapter": "5",
+        "scene": "truth_revealed",
+        "characters": ["세라"],
+        "location": "한그룹 본사"
+      }
+    }
+  ],
+
+  "chat_test_cases": [
+    {
+      "id": "test-q01",
+      "message": "진하는 누구인가요?",
+      "expected_topics": ["탐정", "하층 거주구", "ARIA", "빚쟁이"],
+      "category": "character_info"
+    },
+    {
+      "id": "test-q02",
+      "message": "세라의 정체는 무엇인가요?",
+      "expected_topics": ["안드로이드", "한채린", "엘리시움 프로젝트", "한그룹"],
+      "category": "character_info"
+    },
+    {
+      "id": "test-q03",
+      "message": "리사는 왜 진하를 떠났나요?",
+      "expected_topics": ["보호", "유민재", "기억 거래 조직"],
+      "category": "plot_question"
+    },
+    {
+      "id": "test-q04",
+      "message": "엘리시움 프로젝트가 뭐예요?",
+      "expected_topics": ["의식 이전", "안드로이드", "한그룹", "불멸"],
+      "category": "worldbuilding"
+    },
+    {
+      "id": "test-q05",
+      "message": "네오서울은 어떤 곳인가요?",
+      "expected_topics": ["사이버펑크", "네온", "초고층 빌딩", "하층 거주구"],
+      "category": "worldbuilding"
+    },
+    {
+      "id": "test-q06",
+      "message": "유민재의 목적은 뭔가요?",
+      "expected_topics": ["기억 거래", "브로커", "세라", "조직"],
+      "category": "character_info"
+    },
+    {
+      "id": "test-q07",
+      "message": "ARIA는 어떤 존재인가요?",
+      "expected_topics": ["AI", "임플란트", "진하의 파트너"],
+      "category": "character_info"
+    },
+    {
+      "id": "test-q08",
+      "message": "진하와 세라는 어떻게 만났나요?",
+      "expected_topics": ["의뢰", "탐정", "과거를 찾아달라"],
+      "category": "plot_question"
+    },
+    {
+      "id": "test-q09",
+      "message": "이 소설의 주요 갈등은 뭔가요?",
+      "expected_topics": ["정체성", "추적", "유민재", "기억"],
+      "category": "plot_analysis"
+    },
+    {
+      "id": "test-q10",
+      "message": "세라와 한채린의 관계는?",
+      "expected_topics": ["동일인물", "의식 이전", "재벌 회장의 딸"],
+      "category": "character_relation"
+    }
+  ],
+
+  "conversation_history_samples": [
+    {
+      "id": "conv-01",
+      "history": [
+        {"role": "user", "content": "이 소설의 배경이 뭐야?"},
+        {"role": "assistant", "content": "이 소설은 2087년 네오서울을 배경으로 합니다. 사이버펑크 도시로, 초고층 빌딩과 네온 조명이 특징이며, 부유층과 하층 거주구의 빈부격차가 극심한 세계입니다."}
+      ],
+      "follow_up": "그럼 주인공은 어느 쪽에 사는 거야?",
+      "expected_context": "진하가 하층 거주구에 산다는 것을 이전 맥락과 연결"
+    },
+    {
+      "id": "conv-02",
+      "history": [
+        {"role": "user", "content": "세라에 대해 알려줘"},
+        {"role": "assistant", "content": "세라는 한그룹 회장의 딸 한채린의 의식이 이전된 안드로이드입니다. 엘리시움 프로젝트의 첫 번째 성공 사례로, 자신의 정체성에 대해 혼란을 겪고 있습니다."}
+      ],
+      "follow_up": "그녀를 쫓는 사람은 누구야?",
+      "expected_context": "유민재와 기억 거래 조직에 대한 정보"
+    }
+  ],
+
+  "edge_cases": [
+    {
+      "id": "edge-01",
+      "message": "",
+      "description": "빈 메시지 처리",
+      "expected_behavior": "에러 또는 안내 메시지"
+    },
+    {
+      "id": "edge-02",
+      "message": "asdfghjkl",
+      "description": "의미없는 입력",
+      "expected_behavior": "질문 의도 파악 불가 안내"
+    },
+    {
+      "id": "edge-03",
+      "message": "해리 포터에 대해 알려줘",
+      "description": "프로젝트와 무관한 질문",
+      "expected_behavior": "프로젝트 내용 기반으로만 답변 가능하다고 안내"
+    },
+    {
+      "id": "edge-04",
+      "message": "작가는 누구야?",
+      "description": "메타데이터에 없는 정보 요청",
+      "expected_behavior": "정보 없음 안내"
+    }
+  ]
+}
