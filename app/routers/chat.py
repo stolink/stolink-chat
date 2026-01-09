@@ -15,7 +15,7 @@ async def chat_stream_endpoint(req: ChatRequest):
     Uses session_id for context and Redis for history.
     """
     return StreamingResponse(
-        chat_service.chat_stream(req.message, req.project_id, req.session_id),
+        chat_service.chat_stream(req.message, req.project_id, req.session_id, req.user_id),
         media_type="text/event-stream"
     )
 

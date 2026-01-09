@@ -312,6 +312,58 @@ class PostgresService:
         except Exception:
             return False
 
+    # =========================================================================
+    # Chat Log 저장
+    # =========================================================================
+
+    async def save_chat_log(
+        self,
+        project_id: str,
+        session_id: str,
+        user_id: Optional[str],
+        role: str,
+        content: str,
+        sources: Optional[List[Dict[str, Any]]] = None
+    ) -> None:
+        """대화 로그를 PostgreSQL에 비동기 저장.
+        
+        Fire-and-forget 패턴: 저장 실패 시에도 챗봇 응답에 영향 없음.
+        
+        Args:
+            project_id: 프로젝트 UUID
+            session_id: 세션 ID
+            user_id: 사용자 ID (optional)
+            role: 'user' 또는 'ai'
+            content: 대화 내용
+            sources: AI 응답 시 참조한 소스 정보 (optional)
+        """
+        if not self.pool:
+            logger.warning("PostgreSQL pool not available, skipping chat log save")
+            return
+
+        sql = """
+            INSERT INTO chat_logs (project_id, session_id, user_id, role, content, sources_json)
+            VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb)
+        """
+
+        try:
+            sources_json = json.dumps(sources) if sources else None
+            async with self.pool.acquire() as conn:
+                await conn.execute(
+                    sql,
+                    project_id,
+                    session_id,
+                    user_id,
+                    role,
+                    content,
+                    sources_json
+                )
+            logger.debug(f"Chat log saved: session={session_id}, role={role}")
+        except Exception as e:
+            # Fire-and-forget: 로그 저장 실패해도 챗봇 응답은 정상 동작
+            logger.warning(f"Failed to save chat log: {e}")
+
+
 
 # 싱글톤 인스턴스
 postgres_service = PostgresService()
