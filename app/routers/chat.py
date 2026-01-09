@@ -29,3 +29,23 @@ async def stop_chat_generation(req: StopRequest):
     """
     await redis_service.publish_stop_signal(req.session_id)
     return {"status": "signal_sent", "session_id": req.session_id}
+
+
+@router.get("/history/{session_id}")
+async def get_chat_history(session_id: str, limit: int = 20):
+    """
+    Retrieves chat history for a session.
+    
+    Args:
+        session_id: Session identifier (typically userId-projectId)
+        limit: Maximum number of messages to return (default: 20)
+    
+    Returns:
+        Session history with messages
+    """
+    history = await redis_service.get_session_history(session_id, limit=limit)
+    return {
+        "session_id": session_id,
+        "messages": history,
+        "count": len(history)
+    }
