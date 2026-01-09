@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     SEARCH_FINAL_LIMIT: int = 10
     SEARCH_THRESHOLD: float = 0.4
 
+    # JWT 설정 (Spring 백엔드와 동일한 값 사용)
+    JWT_SECRET: str = ""  # 환경변수로 설정 필수
+    JWT_ALGORITHM: str = "HS512"
+
     @property
     def postgres_dsn(self) -> str:
         """PostgreSQL 연결 문자열 반환"""

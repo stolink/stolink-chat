@@ -22,7 +22,7 @@ async def chat_stream_endpoint(req: ChatRequest):
 class StopRequest(BaseModel):
     session_id: str
 
-@router.post("/stop")
+@router.post("/stop", dependencies=[Depends(check_project_access)])
 async def stop_chat_generation(req: StopRequest):
     """
     Publishes a STOP signal to the given session.
@@ -31,7 +31,7 @@ async def stop_chat_generation(req: StopRequest):
     return {"status": "signal_sent", "session_id": req.session_id}
 
 
-@router.get("/history/{session_id}")
+@router.get("/history/{session_id}", dependencies=[Depends(check_project_access)])
 async def get_chat_history(session_id: str, limit: int = 20):
     """
     Retrieves chat history for a session.
