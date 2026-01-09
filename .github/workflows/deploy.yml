@@ -22,6 +22,7 @@ jobs:
     environment: ${{ github.ref == 'refs/heads/release' && 'production' || 'develop' }}
     outputs:
       account-id: ${{ steps.aws.outputs.account_id }}
+      sha-short: ${{ steps.vars.outputs.sha_short }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,6 +39,10 @@ jobs:
       - name: Get AWS Account ID
         id: aws
         run: echo "account_id=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_OUTPUT
+
+      - name: Set Short SHA
+        id: vars
+        run: echo "sha_short=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
@@ -106,8 +111,8 @@ jobs:
           AWS_ACCOUNT_ID: ${{ needs.build-and-push.outputs.account-id }}
           # 브랜치에 따라 이미지 태그 결정 (SSM 배포용)
           IMAGE_TAG: ${{ github.ref == 'refs/heads/release' && 'latest' || 'dev-latest' }}
-          # Parameter Store용 고유 SHA 태그 (ASG 신규 인스턴스용)
-          UNIQUE_TAG: ${{ github.ref == 'refs/heads/release' && format('sha-{0}', github.sha) || format('dev-sha-{0}', github.sha) }}
+          # Parameter Store용 고유 SHA 태그 (ASG 신규 인스턴스용 - ECR 태그와 일치)
+          UNIQUE_TAG: ${{ github.ref == 'refs/heads/release' && format('sha-{0}', needs.build-and-push.outputs.sha-short) || format('dev-sha-{0}', needs.build-and-push.outputs.sha-short) }}
         run: |
           # .env 파일 내용 생성
           ENV_CONTENT="OPENAI_API_KEY=${OPENAI_API_KEY}
