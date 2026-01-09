@@ -102,6 +102,8 @@ jobs:
           POSTGRES_USER: ${{ secrets.POSTGRESQL_USERNAME }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRESQL_PASSWORD }}
           POSTGRES_DB: ${{ vars.POSTGRESQL_DATABASE }}
+          # JWT Authentication (Spring 백엔드와 동일한 Secret)
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
           # ECR 이미지 정보
           AWS_ACCOUNT_ID: ${{ needs.build-and-push.outputs.account-id }}
           # 브랜치에 따라 이미지 태그 결정 (SSM 배포용)
@@ -126,6 +128,7 @@ jobs:
           POSTGRES_USER=${POSTGRES_USER}
           POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
           POSTGRES_DB=${POSTGRES_DB}
+          JWT_SECRET=${JWT_SECRET}
           IMAGE_NAME=${AWS_ACCOUNT_ID}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/stolink/stolink-chat:${UNIQUE_TAG}"
 
           # docker-compose.yml 내용 읽기
