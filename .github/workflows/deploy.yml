@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm # ARM64 native runner (에뮬레이션 오버헤드 제거)
     # 브랜치에 따라 환경 자동 선택
     environment: ${{ github.ref == 'refs/heads/release' && 'production' || 'develop' }}
     outputs:
@@ -55,7 +55,6 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha
