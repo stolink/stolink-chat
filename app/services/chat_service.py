@@ -7,6 +7,7 @@ AWS Bedrock Claude를 사용하여 소설 관련 질문에 응답합니다.
 from app.services.embedding_service import embedding_service
 from app.services.unified_search_service import unified_search_service
 from app.services.redis_service import redis_service
+from app.services.postgres_service import postgres_service
 from app.config import settings
 
 from langchain_aws import ChatBedrock
@@ -134,12 +135,21 @@ class ChatService:
         self,
         message: str,
         project_id: str,
-        session_id: str
+        session_id: str,
+        user_id: str = None
     ) -> AsyncGenerator[str, None]:
         """스트리밍 채팅 응답 생성."""
         
-        # 0. Save User Message to History
+        # 0. Save User Message to History (Redis + PostgreSQL)
         await redis_service.add_message_to_history(session_id, "user", message)
+        # PostgreSQL 영구 저장 (fire-and-forget)
+        asyncio.create_task(postgres_service.save_chat_log(
+            project_id=project_id,
+            session_id=session_id,
+            user_id=user_id,
+            role="user",
+            content=message
+        ))
 
         # 0.5 Intent Classification (Guardrail)
         intent_prompt = [
@@ -229,6 +239,15 @@ Context:
             if full_response:
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
                 await redis_service.add_message_to_history(session_id, "ai", full_response)
+                # PostgreSQL 영구 저장 (fire-and-forget)
+                asyncio.create_task(postgres_service.save_chat_log(
+                    project_id=project_id,
+                    session_id=session_id,
+                    user_id=user_id,
+                    role="ai",
+                    content=full_response,
+                    sources=sources_data.get("sources")
+                ))
 
         except Exception as e:
             logger.error(f"Chat stream error: {e}")

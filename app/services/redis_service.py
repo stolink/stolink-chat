@@ -21,13 +21,21 @@ class RedisService:
         # Optional: Set TTL (e.g., 7 days)
         await self.client.expire(key, 60 * 60 * 24 * 7)
 
-    async def get_session_history(self, session_id: str) -> List[Dict[str, str]]:
+    async def get_session_history(self, session_id: str, limit: int = None) -> List[Dict[str, str]]:
         """
-        Retrieves the full chat history for a session.
+        Retrieves the chat history for a session.
+        
+        Args:
+            session_id: Session identifier
+            limit: If specified, returns only the most recent N messages
         """
         key = f"session:{session_id}:history"
-        # Get all elements
-        messages = await self.client.lrange(key, 0, -1)
+        if limit:
+            # Get last N elements (most recent)
+            messages = await self.client.lrange(key, -limit, -1)
+        else:
+            # Get all elements
+            messages = await self.client.lrange(key, 0, -1)
         return [json.loads(msg) for msg in messages]
 
     async def publish_stop_signal(self, session_id: str):

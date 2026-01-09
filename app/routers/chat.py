@@ -15,7 +15,7 @@ async def chat_stream_endpoint(req: ChatRequest):
     Uses session_id for context and Redis for history.
     """
     return StreamingResponse(
-        chat_service.chat_stream(req.message, req.project_id, req.session_id),
+        chat_service.chat_stream(req.message, req.project_id, req.session_id, req.user_id),
         media_type="text/event-stream"
     )
 
@@ -29,3 +29,23 @@ async def stop_chat_generation(req: StopRequest):
     """
     await redis_service.publish_stop_signal(req.session_id)
     return {"status": "signal_sent", "session_id": req.session_id}
+
+
+@router.get("/history/{session_id}")
+async def get_chat_history(session_id: str, limit: int = 20):
+    """
+    Retrieves chat history for a session.
+    
+    Args:
+        session_id: Session identifier (typically userId-projectId)
+        limit: Maximum number of messages to return (default: 20)
+    
+    Returns:
+        Session history with messages
+    """
+    history = await redis_service.get_session_history(session_id, limit=limit)
+    return {
+        "session_id": session_id,
+        "messages": history,
+        "count": len(history)
+    }
