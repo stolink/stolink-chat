@@ -1,0 +1,190 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - release # production 환경
+      - dev # develop 환경
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  packages: write
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    # 브랜치에 따라 환경 자동 선택
+    environment: ${{ github.ref == 'refs/heads/release' && 'production' || 'develop' }}
+    outputs:
+      account-id: ${{ steps.aws.outputs.account_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_SSMFULL_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Get AWS Account ID
+        id: aws
+        run: echo "account_id=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_OUTPUT
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.aws.outputs.account_id }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/stolink/stolink-chat
+          tags: |
+            type=raw,value=${{ github.ref == 'refs/heads/release' && 'latest' || 'dev-latest' }}
+            type=sha,prefix=${{ github.ref == 'refs/heads/release' && 'sha-' || 'dev-sha-' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: [build-and-push]
+    runs-on: ubuntu-latest
+    # 브랜치에 따라 환경 자동 선택
+    environment: ${{ github.ref == 'refs/heads/release' && 'production' || 'develop' }}
+    steps:
+      - name: Checkout (for docker-compose.yml only)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            docker-compose.yml
+          sparse-checkout-cone-mode: false
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_SSMFULL_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Deploy to EC2 via SSM
+        env:
+          # LLM API Keys
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # AWS Bedrock
+          AWS_BEDROCK_API_KEY_ID: ${{ secrets.AWS_BEDROCK_ACCESS_KEY_ID }}
+          AWS_BEDROCK_API_KEY_SECRET: ${{ secrets.AWS_BEDROCK_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_BEDROCK_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_BEDROCK_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
+          # AWS_BEDROCK_MODEL_ID: ${{ vars.AWS_BEDROCK_MODEL_ID }}
+          # Redis
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          # Neo4j (NEO4J_URI secret은 호스트명만 제공, bolt://host:port로 조합 필요)
+          NEO4J_HOST: ${{ secrets.NEO4J_URI }}
+          NEO4J_PORT: ${{ vars.NEO4J_PORT }}
+          NEO4J_USER: ${{ secrets.NEO4J_USERNAME }}
+          NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
+          # PostgreSQL
+          POSTGRES_HOST: ${{ secrets.POSTGRESQL_URL }}
+          POSTGRES_PORT: ${{ vars.POSTGRESQL_PORT }}
+          POSTGRES_USER: ${{ secrets.POSTGRESQL_USERNAME }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRESQL_PASSWORD }}
+          POSTGRES_DB: ${{ vars.POSTGRESQL_DATABASE }}
+          # ECR 이미지 정보
+          AWS_ACCOUNT_ID: ${{ needs.build-and-push.outputs.account-id }}
+          # 브랜치에 따라 이미지 태그 결정 (SSM 배포용)
+          IMAGE_TAG: ${{ github.ref == 'refs/heads/release' && 'latest' || 'dev-latest' }}
+          # Parameter Store용 고유 SHA 태그 (ASG 신규 인스턴스용)
+          UNIQUE_TAG: ${{ github.ref == 'refs/heads/release' && format('sha-{0}', github.sha) || format('dev-sha-{0}', github.sha) }}
+        run: |
+          # .env 파일 내용 생성
+          ENV_CONTENT="OPENAI_API_KEY=${OPENAI_API_KEY}
+          GEMINI_API_KEY=${GEMINI_API_KEY}
+          AWS_BEDROCK_API_KEY_ID=${AWS_BEDROCK_API_KEY_ID}
+          AWS_BEDROCK_API_KEY_SECRET=${AWS_BEDROCK_API_KEY_SECRET}
+          AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+          AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+          AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+          REDIS_URL=${REDIS_URL}
+          NEO4J_URI=bolt://${NEO4J_HOST}:${NEO4J_PORT}
+          NEO4J_USER=${NEO4J_USER}
+          NEO4J_PASSWORD=${NEO4J_PASSWORD}
+          POSTGRES_HOST=${POSTGRES_HOST}
+          POSTGRES_PORT=${POSTGRES_PORT}
+          POSTGRES_USER=${POSTGRES_USER}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          POSTGRES_DB=${POSTGRES_DB}
+          IMAGE_NAME=${AWS_ACCOUNT_ID}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/stolink/stolink-chat:${UNIQUE_TAG}"
+
+          # docker-compose.yml 내용 읽기
+          COMPOSE_CONTENT=$(cat docker-compose.yml)
+
+          # Base64로 인코딩하여 SSM으로 전달 (특수문자 이스케이프 문제 해결)
+          ENV_BASE64=$(echo "$ENV_CONTENT" | base64 -w 0)
+          COMPOSE_BASE64=$(echo "$COMPOSE_CONTENT" | base64 -w 0)
+
+          # Parameter Store에 저장 (ASG 신규 인스턴스 자동 설정용)
+          ENV_PATH=${{ github.ref == 'refs/heads/release' && '/prod' || '/dev' }}/stolink-chat
+          aws ssm put-parameter --name "${ENV_PATH}/env" --value "$ENV_CONTENT" --type SecureString --overwrite
+          aws ssm put-parameter --name "${ENV_PATH}/docker-compose" --value "$COMPOSE_CONTENT" --type String --overwrite
+          echo "✅ Parameter Store updated: ${ENV_PATH}"
+
+          # SSM 명령 실행 및 Command ID 캡처
+          # dev 브랜치: dev-stolink-chat 태그, release 브랜치: stolink-chat 태그
+          EC2_TAG=${{ github.ref == 'refs/heads/release' && 'stolink-chat' || 'dev-stolink-chat' }}
+
+          COMMAND_ID=$(aws ssm send-command \
+            --document-name "AWS-RunShellScript" \
+            --targets "Key=tag:tag,Values=${EC2_TAG}" \
+            --parameters "commands=[
+              \"sudo -i -u ubuntu bash -c 'mkdir -p /home/ubuntu/stolink-chat'\",
+              \"sudo rm -f /home/ubuntu/stolink-chat/.env && echo '${ENV_BASE64}' | base64 -d | sudo -u ubuntu tee /home/ubuntu/stolink-chat/.env > /dev/null\",
+              \"sudo rm -f /home/ubuntu/stolink-chat/docker-compose.yml && echo '${COMPOSE_BASE64}' | base64 -d | sudo -u ubuntu tee /home/ubuntu/stolink-chat/docker-compose.yml > /dev/null\",
+              \"sudo -i -u ubuntu bash -c 'cd /home/ubuntu/stolink-chat && sudo docker compose down --remove-orphans && sudo docker compose up -d --pull always && sudo docker image prune -f'\"
+            ]" \
+            --timeout-seconds 300 \
+            --max-concurrency "50%" \
+            --max-errors "0" \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "SSM Command ID: $COMMAND_ID"
+
+          # SSM 명령 완료 대기 (최대 5분)
+          echo "Waiting for SSM command to complete..."
+          for i in {1..30}; do
+            STATUS=$(aws ssm list-commands --command-id "$COMMAND_ID" --query "Commands[0].Status" --output text)
+            echo "Attempt $i/30: Status = $STATUS"
+
+            if [ "$STATUS" = "Success" ]; then
+              echo "✅ SSM command completed successfully"
+              break
+            elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "TimedOut" ]; then
+              echo "❌ SSM command failed with status: $STATUS"
+              # 실패 시 상세 로그 출력
+              aws ssm list-command-invocations --command-id "$COMMAND_ID" --details --query "CommandInvocations[0].CommandPlugins[0].Output" --output text
+              exit 1
+            fi
+
+            sleep 10
+          done
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "❌ SSM command did not complete in time. Last status: $STATUS"
+            exit 1
+          fi
