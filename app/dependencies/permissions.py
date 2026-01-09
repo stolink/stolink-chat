@@ -3,10 +3,11 @@
 Handles authentication and authorization checks.
 """
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials
 from typing import Optional
 
-from app.middleware.auth import verify_token
+from app.middleware.auth import verify_token, security
 
 
 async def check_project_access(user: dict = Depends(verify_token)) -> dict:
@@ -31,13 +32,17 @@ async def check_project_access(user: dict = Depends(verify_token)) -> dict:
     return user
 
 
-async def get_optional_user(user: dict = Depends(verify_token)) -> Optional[dict]:
+async def get_optional_user(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> Optional[dict]:
     """
     Get current user if authenticated, None otherwise.
     
     For endpoints that support both authenticated and anonymous access.
+    Unlike check_project_access, this does NOT raise 401 for unauthenticated requests.
     """
     try:
-        return user
+        return await verify_token(request, credentials)
     except HTTPException:
         return None
