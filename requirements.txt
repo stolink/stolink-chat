@@ -26,3 +26,7 @@ pytest>=7.0
 pytest-asyncio>=0.21.0
 httpx>=0.25.0
 
+# RAG Evaluation
+ragas>=0.1.0
+datasets>=2.14.0
+
