@@ -6,9 +6,15 @@ from app.services.redis_service import redis_service
 from app.dependencies.permissions import check_project_access
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/ai-api/chat", tags=["chat"])
+from app.config import settings
 
-@router.post("/stream", dependencies=[Depends(check_project_access)])
+# Prefix 변경: CloudFront 호환을 위해 /api/ai-chat 사용
+router = APIRouter(prefix="/api/ai-chat", tags=["chat"])
+
+# 조건부 인증: 로컬이 아닐 때만 인증 적용
+_auth_dependency = [Depends(check_project_access)] if settings.APP_ENV != "local" else []
+
+@router.post("/stream", dependencies=_auth_dependency)
 async def chat_stream_endpoint(req: ChatRequest):
     """
     Streaming chat endpoint using Server-Sent Events (SSE).
@@ -22,7 +28,8 @@ async def chat_stream_endpoint(req: ChatRequest):
 class StopRequest(BaseModel):
     session_id: str
 
-@router.post("/stop", dependencies=[Depends(check_project_access)])
+# TODO: 테스트 완료 후 인증 다시 활성화
+@router.post("/stop", dependencies=_auth_dependency)
 async def stop_chat_generation(req: StopRequest):
     """
     Publishes a STOP signal to the given session.
@@ -31,7 +38,8 @@ async def stop_chat_generation(req: StopRequest):
     return {"status": "signal_sent", "session_id": req.session_id}
 
 
-@router.get("/history/{session_id}", dependencies=[Depends(check_project_access)])
+# TODO: 테스트 완료 후 인증 다시 활성화
+@router.get("/history/{session_id}", dependencies=_auth_dependency)
 async def get_chat_history(session_id: str, limit: int = 20):
     """
     Retrieves chat history for a session.

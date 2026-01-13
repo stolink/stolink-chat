@@ -4,7 +4,7 @@ Agent가 분석/저장한 데이터를 RAG에서 활용합니다.
 
 데이터 소스:
 - sections: 본문 청크 (벡터 검색, Gemini 3072차원)
-- characters: 캐릭터 정보 (텍스트 검색)
+- characters: 캐릭터 정보 (Neo4j 텍스트 검색)
 - events: 이벤트 정보 (텍스트 검색)
 """
 
@@ -13,6 +13,7 @@ import logging
 from typing import List, Dict, Any
 
 from app.services.postgres_service import postgres_service
+from app.services.neo4j_service import neo4j_service
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 class UnifiedSearchService:
     """Multi-Source RAG 통합 검색 서비스.
     
-    sections(벡터) + characters(텍스트) + events(텍스트) 병렬 검색 후 결과 병합.
+    sections(벡터) + characters(Neo4j) + events(텍스트) 병렬 검색 후 결과 병합.
     """
 
     async def search(
@@ -44,7 +45,7 @@ class UnifiedSearchService:
         Returns:
             {
                 "sections": [...],      # 본문 맥락
-                "characters": [...],    # 관련 캐릭터
+                "characters": [...],    # 관련 캐릭터 (Neo4j)
                 "events": [...]         # 관련 이벤트
             }
         """
@@ -52,19 +53,24 @@ class UnifiedSearchService:
         characters_limit = characters_limit or settings.SEARCH_CHARACTERS_LIMIT
         events_limit = events_limit or settings.SEARCH_EVENTS_LIMIT
 
-        # 병렬 검색 실행
+        # 병렬 검색 실행 (캐릭터는 Neo4j에서 검색)
         section_task = postgres_service.search_sections(
             project_id, query_embedding, sections_limit
-        )
-        character_task = postgres_service.search_characters(
-            project_id, query_text, characters_limit
         )
         event_task = postgres_service.search_events(
             project_id, query_text, events_limit
         )
 
-        sections, characters, events = await asyncio.gather(
-            section_task, character_task, event_task,
+        # Neo4j 캐릭터 검색 (동기 함수이므로 run_in_executor 사용)
+        loop = asyncio.get_event_loop()
+        character_task = loop.run_in_executor(
+            None,
+            neo4j_service.search_characters,
+            project_id, query_text, characters_limit
+        )
+
+        sections, events, characters = await asyncio.gather(
+            section_task, event_task, character_task,
             return_exceptions=True
         )
 
