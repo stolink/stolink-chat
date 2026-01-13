@@ -25,7 +25,9 @@ class StopRequest(BaseModel):
     session_id: str
 
 # TODO: 테스트 완료 후 인증 다시 활성화
-@router.post("/stop", dependencies=[Depends(check_project_access)])
+# TODO: 테스트 완료 후 인증 다시 활성화
+# @router.post("/stop", dependencies=[Depends(check_project_access)])
+@router.post("/stop")  # 임시: 인증 비활성화
 async def stop_chat_generation(req: StopRequest):
     """
     Publishes a STOP signal to the given session.
@@ -35,7 +37,9 @@ async def stop_chat_generation(req: StopRequest):
 
 
 # TODO: 테스트 완료 후 인증 다시 활성화
-@router.get("/history/{session_id}", dependencies=[Depends(check_project_access)])
+# TODO: 테스트 완료 후 인증 다시 활성화
+# @router.get("/history/{session_id}", dependencies=[Depends(check_project_access)])
+@router.get("/history/{session_id}")  # 임시: 인증 비활성화
 async def get_chat_history(session_id: str, limit: int = 20):
     """
     Retrieves chat history for a session.
