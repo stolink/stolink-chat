@@ -8,17 +8,53 @@ from app.services.embedding_service import embedding_service
 from app.services.unified_search_service import unified_search_service
 from app.services.redis_service import redis_service
 from app.services.postgres_service import postgres_service
+from app.services.neo4j_service import neo4j_service
 from app.config import settings
 
 from langchain_aws import ChatBedrock
 from langchain.schema import HumanMessage, SystemMessage, AIMessage
-from typing import AsyncGenerator, Dict, Any, List
+from typing import AsyncGenerator, Dict, Any, List, Tuple, Optional
 import json
 import asyncio
 import logging
 import boto3
 
 logger = logging.getLogger(__name__)
+
+# 관계 질문 감지용 키워드
+RELATIONSHIP_KEYWORDS = [
+    "관계", "사이", "어떻게 생각", "친구", "적", "연인", "가족",
+    "과의", "와의", "랑", "하고", "둘", "두 사람", "그들",
+    "친한지", "싫어", "좋아", "원수", "동료", "형제", "자매"
+]
+
+
+def detect_relationship_context(
+    search_results: Dict[str, Any],
+    query: str
+) -> Optional[Tuple[Dict, Dict]]:
+    """RAG 검색 결과에서 관계 질문 여부를 감지.
+    
+    Returns:
+        (캐릭터1 정보, 캐릭터2 정보) 또는 None
+    """
+    # Step 1: 키워드 프리필터
+    if not any(kw in query for kw in RELATIONSHIP_KEYWORDS):
+        return None
+    
+    # Step 2: 2명 이상의 캐릭터가 검색되었는지 확인
+    characters = search_results.get("characters", [])
+    if len(characters) < 2:
+        return None
+    
+    # Step 3: 쿼리에 두 캐릭터 이름이 모두 언급되었는지 확인
+    char1, char2 = characters[0], characters[1]
+    query_lower = query.lower()
+    
+    if char1["name"].lower() in query_lower and char2["name"].lower() in query_lower:
+        return (char1, char2)
+    
+    return None
 
 
 class ChatService:
@@ -180,23 +216,74 @@ Reply with 'Y' if related/safe, 'N' if Out-of-Domain."""),
             query_embedding=query_embedding,
             query_text=message
         )
+        
+        # DEBUG: 검색 결과 로그
+        logger.info(f"Search results - sections: {len(search_results.get('sections', []))}, "
+                    f"characters: {len(search_results.get('characters', []))}, "
+                    f"events: {len(search_results.get('events', []))}")
+        if search_results.get('characters'):
+            logger.info(f"Characters found: {[c['name'] for c in search_results['characters']]}")
 
         # 3. Format Context
         context_text = self._format_multi_source_context(search_results)
+        
+        # DEBUG: LLM에 전달되는 컨텍스트 확인
+        logger.info(f"Context text length: {len(context_text)}")
+        if context_text:
+            logger.info(f"Context preview: {context_text[:500]}...")
 
         # 4. Send sources to client
         sources_data = self._build_sources_response(search_results)
         yield f"data: {json.dumps(sources_data)}\n\n"
 
-        # 5. Construct Prompt
-        system_prompt = f"""당신은 소설 작품 전용 AI 어시스턴트입니다.
-아래 제공된 컨텍스트(Context)에 있는 정보만을 기반으로 답변해주세요.
+        # 4.5 관계 카드 생성 (조건부)
+        relationship_pair = detect_relationship_context(search_results, message)
+        if relationship_pair:
+            char1, char2 = relationship_pair
+            relationship_data = neo4j_service.get_relationship_between(
+                project_id, char1["id"], char2["id"]
+            )
+            
+            if relationship_data:
+                card_event = {
+                    "type": "cards",
+                    "cards": [{
+                        "cardType": "relationship",
+                        "data": {
+                            "sourceCharacter": {
+                                "id": char1["id"],
+                                "name": char1["name"],
+                            },
+                            "targetCharacter": {
+                                "id": char2["id"],
+                                "name": char2["name"],
+                            },
+                            "types": relationship_data["types"],
+                            "strength": relationship_data["strength"],
+                            "description": relationship_data["description"],
+                            "bidirectional": relationship_data["bidirectional"],
+                            "since": relationship_data["since"]
+                        },
+                        "actionUrl": f"/projects/{project_id}/world/characters?relationship={relationship_data['id']}"
+                    }]
+                }
+                yield f"data: {json.dumps(card_event)}\n\n"
+                logger.info(f"Relationship card generated: {char1['name']} <-> {char2['name']}")
 
-지침:
-1. 컨텍스트에 있는 정보만 사용하여 답변하세요.
-2. 컨텍스트에 없는 내용(일반 상식, 실제 사건, 코딩 등)은 정중히 거절하세요.
-3. 소설의 내용을 지어내지 마세요.
-4. 한국어로 자연스럽게 답변하세요.
+        # 5. Construct Prompt
+        # Context가 비어있는 경우 처리
+        if not context_text or context_text.strip() == "":
+            context_text = "(검색된 정보 없음)"
+            logger.warning(f"Empty context for message: {message}")
+        
+        system_prompt = f"""당신은 소설 작품 전용 AI 어시스턴트입니다.
+
+**핵심 규칙:**
+1. 아래 Context에 있는 정보를 **반드시 우선적으로** 사용하세요.
+2. Context에 캐릭터 정보가 있다면 그 내용을 직접 인용하여 답변하세요.
+3. 답변은 **2-3문장**으로 간결하게 작성하세요.
+4. 정보가 없을 때만 "정보가 없습니다"라고 짧게 말하세요.
+5. 불필요한 사과나 긴 설명은 피하세요.
 
 Context:
 {context_text}
