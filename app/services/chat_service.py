@@ -264,7 +264,7 @@ Reply with 'Y' if related/safe, 'N' if Out-of-Domain."""),
                             "bidirectional": relationship_data["bidirectional"],
                             "since": relationship_data["since"]
                         },
-                        "actionUrl": f"/projects/{project_id}/world/characters?relationship={relationship_data['id']}"
+                        "actionUrl": f"/projects/{project_id}/world?tab=graph&relationship={relationship_data['sourceId']}-{relationship_data['targetId']}"
                     }]
                 }
                 yield f"data: {json.dumps(card_event)}\n\n"
