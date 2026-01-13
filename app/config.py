@@ -8,6 +8,9 @@ from typing import Optional
 class Settings(BaseSettings):
     # Gemini 임베딩 설정
     GEMINI_API_KEY: str
+
+    # 환경 설정 (local, dev, production)
+    APP_ENV: str = "local"
     
     # AWS Bedrock 설정 (Claude 3 Haiku)
     # 표준 AWS 변수명 지원
