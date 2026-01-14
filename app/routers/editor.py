@@ -3,7 +3,7 @@ from app.models.schemas import EditorSaveRequest
 
 from app.dependencies.permissions import check_project_access
 
-router = APIRouter(prefix="/ai-api/editor", tags=["editor"])
+router = APIRouter(prefix="/api/ai-api/editor", tags=["editor"])
 
 @router.post("/save", dependencies=[Depends(check_project_access)])
 async def save_editor_content(req: EditorSaveRequest, background_tasks: BackgroundTasks):
