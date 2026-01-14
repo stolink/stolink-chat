@@ -8,8 +8,8 @@ from pydantic import BaseModel
 
 from app.config import settings
 
-# Prefix 변경: CloudFront/ALB(/api/ai-api/*) 호환을 위해 /api/ai-api/chat 사용
-router = APIRouter(prefix="/api/ai-api/chat", tags=["chat"])
+# Prefix 변경: 실제 유입되는 경로(/ai-api/chat/*)에 맞춰 수정
+router = APIRouter(prefix="/ai-api/chat", tags=["chat"])
 
 # 조건부 인증: 로컬이 아닐 때만 인증 적용
 _auth_dependency = [Depends(check_project_access)] if settings.APP_ENV != "local" else []
