@@ -96,9 +96,8 @@ jobs:
           # AWS_BEDROCK_MODEL_ID: ${{ vars.AWS_BEDROCK_MODEL_ID }}
           # Redis
           REDIS_URL: ${{ secrets.REDIS_URL }}
-          # Neo4j (NEO4J_URI secret은 호스트명만 제공, bolt://host:port로 조합 필요)
-          NEO4J_HOST: ${{ secrets.NEO4J_URI }}
-          NEO4J_PORT: ${{ vars.NEO4J_PORT }}
+          # Neo4j (NEO4J_URI는 bolt://host:port 형식의 전체 URI)
+          NEO4J_URI: ${{ secrets.NEO4J_URI }}
           NEO4J_USER: ${{ secrets.NEO4J_USERNAME }}
           NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
           # PostgreSQL
@@ -125,7 +124,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY=${BEDROCK_SECRET_ACCESS_KEY}
           AWS_DEFAULT_REGION=${BEDROCK_DEFAULT_REGION}
           REDIS_URL=${REDIS_URL}
-          NEO4J_URI=bolt://${NEO4J_HOST}:${NEO4J_PORT}
+          NEO4J_URI=${NEO4J_URI}
           NEO4J_USER=${NEO4J_USER}
           NEO4J_PASSWORD=${NEO4J_PASSWORD}
           POSTGRES_HOST=${POSTGRES_HOST}
@@ -160,6 +159,7 @@ jobs:
               \"sudo -i -u ubuntu bash -c 'mkdir -p /home/ubuntu/stolink-chat'\",
               \"sudo rm -f /home/ubuntu/stolink-chat/.env && echo '${ENV_BASE64}' | base64 -d | sudo -u ubuntu tee /home/ubuntu/stolink-chat/.env > /dev/null\",
               \"sudo rm -f /home/ubuntu/stolink-chat/docker-compose.yml && echo '${COMPOSE_BASE64}' | base64 -d | sudo -u ubuntu tee /home/ubuntu/stolink-chat/docker-compose.yml > /dev/null\",
+              \"sudo -i -u ubuntu bash -c 'aws ecr get-login-password --region ap-northeast-2 | sudo docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com'\",
               \"sudo -i -u ubuntu bash -c 'cd /home/ubuntu/stolink-chat && sudo docker compose down --remove-orphans && sudo docker compose up -d --pull always && sudo docker image prune -f'\"
             ]" \
             --timeout-seconds 300 \

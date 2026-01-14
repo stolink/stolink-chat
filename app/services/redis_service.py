@@ -5,7 +5,7 @@ from typing import List, Dict, Optional
 
 class RedisService:
     def __init__(self):
-        self.redis_url = settings.REDIS_URL
+        self.redis_url = settings.redis_url_with_scheme
         self.client = redis.from_url(self.redis_url, encoding="utf-8", decode_responses=True)
         # Key Schema:
         # History: session:{session_id}:history (List of JSON)

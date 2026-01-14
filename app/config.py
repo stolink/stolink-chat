@@ -59,6 +59,22 @@ class Settings(BaseSettings):
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
 
+    @property
+    def redis_url_with_scheme(self) -> str:
+        """Ensure Redis URL has proper scheme (redis://, rediss://, or unix://).
+        
+        Auto-fixes bare host:port URLs (e.g., AWS ElastiCache Serverless format)
+        by prepending 'redis://' scheme.
+        """
+        url = self.REDIS_URL
+        
+        # If already has scheme, return as-is
+        if url.startswith(("redis://", "rediss://", "unix://")):
+            return url
+        
+        # Auto-fix: prepend redis:// for bare host:port or host
+        return f"rediss://{url}"
+
     class Config:
         env_file = ".env"
         extra = "ignore"  # .env에 정의되지 않은 변수 무시
