@@ -8,8 +8,8 @@ from pydantic import BaseModel
 
 from app.config import settings
 
-# Prefix 변경: 실제 유입되는 경로(/ai-api/chat/*)에 맞춰 수정
-router = APIRouter(prefix="/ai-api/chat", tags=["chat"])
+# Prefix 변경: Dev 환경 표준(/ai-api)으로 롤백 - 추후 /ai-api/chat으로 마이그레이션 예정
+router = APIRouter(prefix="/ai-api", tags=["chat"])
 
 # 조건부 인증: 로컬이 아닐 때만 인증 적용
 _auth_dependency = [Depends(check_project_access)] if settings.APP_ENV != "local" else []
