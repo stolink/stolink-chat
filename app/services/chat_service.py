@@ -314,6 +314,7 @@ class ChatService:
         user_id: str = None
     ) -> AsyncGenerator[str, None]:
         """스트리밍 채팅 응답 생성."""
+        collected_cards = []
 
         # 0. 사용자 메시지 저장
         await redis_service.add_message_to_history(session_id, "user", message)
@@ -335,6 +336,8 @@ class ChatService:
         # 3. 페르소나 모드: 카드 전송
         if context.mode == ChatMode.PERSONA and context.persona_context:
             persona_card = persona_service.generate_persona_card(context.persona_context)
+            if persona_card.get("cards"):
+                collected_cards.extend(persona_card["cards"])
             yield f"data: {json.dumps(persona_card)}\n\n"
 
         # 4. Intent Classification (Out-of-Domain 필터링) - 페르소나 모드 제외
@@ -364,6 +367,8 @@ Reply with 'Y' if related/safe, 'N' if Out-of-Domain."""),
         if context.conflicts:
             consistency_data = consistency_service.format_conflicts_for_response(context.conflicts)
             if consistency_data:
+                if consistency_data.get("cards"):
+                    collected_cards.extend(consistency_data["cards"])
                 yield f"data: {json.dumps(consistency_data)}\n\n"
 
         # 8. 관계 카드 생성 (일반 모드에서만)
@@ -374,6 +379,8 @@ Reply with 'Y' if related/safe, 'N' if Out-of-Domain."""),
                 project_id
             )
             if relationship_card:
+                if relationship_card.get("cards"):
+                    collected_cards.extend(relationship_card["cards"])
                 yield f"data: {json.dumps(relationship_card)}\n\n"
 
         # 9. System Prompt 생성
@@ -409,14 +416,18 @@ Reply with 'Y' if related/safe, 'N' if Out-of-Domain."""),
 
             if full_response:
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
-                await redis_service.add_message_to_history(session_id, "ai", full_response)
+                # 히스토리 저장 (카드 정보 포함)
+                metadata = {"sources": sources_data.get("sources"), "cards": collected_cards}
+                await redis_service.add_message_to_history(session_id, "ai", full_response, metadata=metadata)
+
                 asyncio.create_task(postgres_service.save_chat_log(
                     project_id=project_id,
                     session_id=session_id,
                     user_id=user_id,
                     role="ai",
                     content=full_response,
-                    sources=sources_data.get("sources")
+                    sources=metadata["sources"],
+                    cards=metadata["cards"]
                 ))
 
         except Exception as e:
