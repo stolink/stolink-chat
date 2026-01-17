@@ -211,9 +211,11 @@ class ChatService:
         if sections:
             parts.append("### 📖 관련 본문")
             for s in sections[:3]:
+                if not s or not isinstance(s, dict):
+                    continue
                 title = s.get("nav_title", "Section")
                 score = s.get("score", 0)
-                content = s["content"][:600] if len(s["content"]) > 600 else s["content"]
+                content = s.get("content", "")[:600] if s.get("content") else ""
 
                 # 신뢰도 표시
                 confidence = "높음" if score >= 0.7 else "중간" if score >= 0.5 else "낮음"
@@ -231,6 +233,8 @@ class ChatService:
         if characters:
             parts.append("### 👤 관련 캐릭터")
             for c in characters[:4]:
+                if not c or not isinstance(c, dict):
+                    continue
                 name = c.get("name", "Unknown")
                 role = c.get("role", "")
                 role_emoji = {"protagonist": "⭐", "antagonist": "💀", "supporting": "👥"}.get(role, "")
@@ -246,6 +250,8 @@ class ChatService:
         if events:
             parts.append("### 📅 관련 사건")
             for e in events[:3]:
+                if not e or not isinstance(e, dict):
+                    continue
                 event_type = e.get("event_type", "")
                 desc = e.get("narrative_summary") or e.get("description", "")
                 if desc:
@@ -266,9 +272,11 @@ class ChatService:
 
         # Sections
         for s in search_results.get("sections", [])[:5]:
+            if not s or not isinstance(s, dict):
+                continue
             sources.append({
                 "id": s.get("section_id", ""),
-                "content": s["content"][:200] + "..." if len(s["content"]) > 200 else s["content"],
+                "content": s.get("content", "")[:200] + "..." if s.get("content") else "",
                 "score": round(s.get("score", 0), 4),
                 "source": "sections",
                 "source_type": "section"
@@ -276,6 +284,8 @@ class ChatService:
 
         # Characters
         for c in search_results.get("characters", []):
+            if not c or not isinstance(c, dict):
+                continue
             sources.append({
                 "id": c.get("id", ""),
                 "content": f"{c.get('name', 'Unknown')}: {c.get('backstory', '')[:150]}",
@@ -285,6 +295,8 @@ class ChatService:
 
         # Events
         for e in search_results.get("events", []):
+            if not e or not isinstance(e, dict):
+                continue
             sources.append({
                 "id": e.get("id", ""),
                 "content": e.get("narrative_summary", e.get("description", ""))[:150],
@@ -302,6 +314,7 @@ class ChatService:
         user_id: str = None
     ) -> AsyncGenerator[str, None]:
         """스트리밍 채팅 응답 생성."""
+        collected_cards = []
 
         # 0. 사용자 메시지 저장
         await redis_service.add_message_to_history(session_id, "user", message)
@@ -323,6 +336,8 @@ class ChatService:
         # 3. 페르소나 모드: 카드 전송
         if context.mode == ChatMode.PERSONA and context.persona_context:
             persona_card = persona_service.generate_persona_card(context.persona_context)
+            if persona_card.get("cards"):
+                collected_cards.extend(persona_card["cards"])
             yield f"data: {json.dumps(persona_card)}\n\n"
 
         # 4. Intent Classification (Out-of-Domain 필터링) - 페르소나 모드 제외
@@ -352,6 +367,8 @@ Reply with 'Y' if related/safe, 'N' if Out-of-Domain."""),
         if context.conflicts:
             consistency_data = consistency_service.format_conflicts_for_response(context.conflicts)
             if consistency_data:
+                if consistency_data.get("cards"):
+                    collected_cards.extend(consistency_data["cards"])
                 yield f"data: {json.dumps(consistency_data)}\n\n"
 
         # 8. 관계 카드 생성 (일반 모드에서만)
@@ -362,6 +379,8 @@ Reply with 'Y' if related/safe, 'N' if Out-of-Domain."""),
                 project_id
             )
             if relationship_card:
+                if relationship_card.get("cards"):
+                    collected_cards.extend(relationship_card["cards"])
                 yield f"data: {json.dumps(relationship_card)}\n\n"
 
         # 9. System Prompt 생성
@@ -397,14 +416,18 @@ Reply with 'Y' if related/safe, 'N' if Out-of-Domain."""),
 
             if full_response:
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
-                await redis_service.add_message_to_history(session_id, "ai", full_response)
+                # 히스토리 저장 (카드 정보 포함)
+                metadata = {"sources": sources_data.get("sources"), "cards": collected_cards}
+                await redis_service.add_message_to_history(session_id, "ai", full_response, metadata=metadata)
+
                 asyncio.create_task(postgres_service.save_chat_log(
                     project_id=project_id,
                     session_id=session_id,
                     user_id=user_id,
                     role="ai",
                     content=full_response,
-                    sources=sources_data.get("sources")
+                    sources=metadata["sources"],
+                    cards=metadata["cards"]
                 ))
 
         except Exception as e:

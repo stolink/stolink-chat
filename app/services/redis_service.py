@@ -11,12 +11,15 @@ class RedisService:
         # History: session:{session_id}:history (List of JSON)
         # Pub/Sub: control:{session_id} (Channel)
 
-    async def add_message_to_history(self, session_id: str, role: str, content: str):
+    async def add_message_to_history(self, session_id: str, role: str, content: str, metadata: Optional[Dict] = None):
         """
         Appends a message to the session history.
         """
         key = f"session:{session_id}:history"
         message = {"role": role, "content": content}
+        if metadata:
+            message["metadata"] = metadata
+
         await self.client.rpush(key, json.dumps(message))
         # Optional: Set TTL (e.g., 7 days)
         await self.client.expire(key, 60 * 60 * 24 * 7)
@@ -24,7 +27,7 @@ class RedisService:
     async def get_session_history(self, session_id: str, limit: int = None) -> List[Dict[str, str]]:
         """
         Retrieves the chat history for a session.
-        
+
         Args:
             session_id: Session identifier
             limit: If specified, returns only the most recent N messages

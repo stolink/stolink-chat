@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class PostgresService:
     """PostgreSQL pgvector 기반 Multi-Source 검색 서비스.
-    
+
     데이터 소스:
     - sections: 본문 청크 (벡터 검색, 3072차원)
     - characters: 캐릭터 정보 (텍스트 검색)
@@ -56,20 +56,20 @@ class PostgresService:
         limit: int = None
     ) -> List[Dict[str, Any]]:
         """sections 테이블에서 벡터 유사도 검색.
-        
+
         Agent가 분석한 섹션 데이터를 검색합니다.
-        
+
         Args:
             project_id: 프로젝트 ID
             query_embedding: 쿼리 임베딩 벡터 (3072차원)
             limit: 반환할 결과 수
-        
+
         Returns:
-            [{"section_id": str, "content": str, "score": float, 
+            [{"section_id": str, "content": str, "score": float,
               "nav_title": str, "related_characters": list, "related_events": list}, ...]
         """
         limit = limit or settings.SEARCH_SECTIONS_LIMIT
-        
+
         if not self.pool:
             logger.warning("PostgreSQL pool not available")
             return []
@@ -143,25 +143,25 @@ class PostgresService:
         limit: int = None
     ) -> List[Dict[str, Any]]:
         """characters 테이블에서 텍스트 검색.
-        
+
         Args:
             project_id: 프로젝트 ID
             query: 검색 쿼리 (캐릭터 이름, 역할, 백스토리 등)
             limit: 반환할 결과 수
-        
+
         Returns:
             [{"id": uuid, "name": str, "role": str, "backstory": str, ...}, ...]
         """
         limit = limit or settings.SEARCH_CHARACTERS_LIMIT
-        
+
         if not self.pool:
             return []
 
         sql = """
-            SELECT 
-                id, 
-                name, 
-                role, 
+            SELECT
+                id,
+                name,
+                role,
                 backstory,
                 description,
                 appearance_json,
@@ -169,18 +169,18 @@ class PostgresService:
             FROM characters
             WHERE project_id = $1::uuid
               AND (
-                name ILIKE $2 
+                name ILIKE $2
                 OR backstory ILIKE $2
                 OR role ILIKE $2
                 OR description ILIKE $2
               )
             LIMIT $3
         """
-        
+
         try:
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(sql, project_id, f"%{query}%", limit)
-                
+
                 results = []
                 for row in rows:
                     char_data = {
@@ -192,7 +192,7 @@ class PostgresService:
                         "source": "characters",
                         "source_type": "character"
                     }
-                    
+
                     # JSON 필드 파싱
                     try:
                         if row["appearance_json"]:
@@ -204,12 +204,12 @@ class PostgresService:
                             char_data["personality"] = json.loads(row["personality_json"])
                     except:
                         pass
-                    
+
                     results.append(char_data)
-                
+
                 logger.info(f"Characters search: {len(results)} results for '{query}'")
                 return results
-                
+
         except asyncpg.UndefinedTableError:
             logger.warning("characters table does not exist")
             return []
@@ -319,12 +319,13 @@ class PostgresService:
         user_id: Optional[str],
         role: str,
         content: str,
-        sources: Optional[List[Dict[str, Any]]] = None
+        sources: Optional[List[Dict[str, Any]]] = None,
+        cards: Optional[List[Dict[str, Any]]] = None
     ) -> None:
         """대화 로그를 PostgreSQL에 비동기 저장.
-        
+
         Fire-and-forget 패턴: 저장 실패 시에도 챗봇 응답에 영향 없음.
-        
+
         Args:
             project_id: 프로젝트 UUID
             session_id: 세션 ID
@@ -332,6 +333,7 @@ class PostgresService:
             role: 'user' 또는 'ai'
             content: 대화 내용
             sources: AI 응답 시 참조한 소스 정보 (optional)
+            cards: AI 응답 시 생성된 카드 정보 (optional)
         """
         if not self.pool:
             logger.warning("PostgreSQL pool not available, skipping chat log save")
@@ -343,7 +345,15 @@ class PostgresService:
         """
 
         try:
-            sources_json = json.dumps(sources) if sources else None
+            # sources_json에 sources와 cards를 모두 포함하여 저장
+            metadata = {}
+            if sources:
+                metadata["sources"] = sources
+            if cards:
+                metadata["cards"] = cards
+
+            metadata_json = json.dumps(metadata) if metadata else None
+
             async with self.pool.acquire() as conn:
                 await conn.execute(
                     sql,
@@ -352,7 +362,7 @@ class PostgresService:
                     user_id,
                     role,
                     content,
-                    sources_json
+                    metadata_json
                 )
             logger.debug(f"Chat log saved: session={session_id}, role={role}")
         except Exception as e:
