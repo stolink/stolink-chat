@@ -228,68 +228,64 @@ class PostgresService:
         limit: int = None
     ) -> List[Dict[str, Any]]:
         """events 테이블에서 텍스트 검색.
-        
+
         Args:
             project_id: 프로젝트 ID
             query: 검색 쿼리
             limit: 반환할 결과 수
-        
+
         Returns:
-            [{"event_id": str, "name": str, "description": str, ...}, ...]
+            [{"id": str, "description": str, "event_type": str, ...}, ...]
         """
         limit = limit or settings.SEARCH_EVENTS_LIMIT
-        
+
         if not self.pool:
             return []
 
         sql = """
-            SELECT 
+            SELECT
                 id,
-                event_id,
-                name,
                 description,
-                narrative_summary,
                 event_type,
-                participants_json
+                location,
+                chapter,
+                participants
             FROM events
             WHERE project_id = $1::uuid
               AND (
-                name ILIKE $2 
-                OR description ILIKE $2
-                OR narrative_summary ILIKE $2
+                description ILIKE $2
+                OR location ILIKE $2
+                OR event_type ILIKE $2
               )
             LIMIT $3
         """
-        
+
         try:
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(sql, project_id, f"%{query}%", limit)
-                
+
                 results = []
                 for row in rows:
                     event_data = {
                         "id": str(row["id"]),
-                        "event_id": row["event_id"],
-                        "name": row["name"],
                         "description": row["description"],
-                        "narrative_summary": row["narrative_summary"],
+                        "narrative_summary": row["description"],  # 호환성 유지
                         "event_type": row["event_type"],
+                        "location": row["location"],
+                        "chapter": row["chapter"],
                         "source": "events",
                         "source_type": "event"
                     }
-                    
-                    # 참여자 JSON 파싱
-                    try:
-                        if row["participants_json"]:
-                            event_data["participants"] = json.loads(row["participants_json"])
-                    except:
-                        pass
-                    
+
+                    # participants (jsonb)
+                    if row["participants"]:
+                        event_data["participants"] = row["participants"]
+
                     results.append(event_data)
-                
+
                 logger.info(f"Events search: {len(results)} results for '{query}'")
                 return results
-                
+
         except asyncpg.UndefinedTableError:
             logger.warning("events table does not exist")
             return []
