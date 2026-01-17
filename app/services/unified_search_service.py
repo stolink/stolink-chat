@@ -3,9 +3,9 @@
 Agent가 분석/저장한 데이터를 RAG에서 활용합니다.
 
 데이터 소스:
-- sections: 본문 청크 (벡터 검색, Gemini 3072차원)
+- sections: 본문 청크 (벡터 검색, PostgreSQL, Gemini 3072차원)
 - characters: 캐릭터 정보 (Neo4j 텍스트 검색)
-- events: 이벤트 정보 (텍스트 검색)
+- events: 이벤트 정보 (Neo4j 텍스트 검색)
 """
 
 import asyncio
@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 class UnifiedSearchService:
     """Multi-Source RAG 통합 검색 서비스.
-    
-    sections(벡터) + characters(Neo4j) + events(텍스트) 병렬 검색 후 결과 병합.
+
+    sections(PostgreSQL벡터) + characters(Neo4j) + events(Neo4j) 병렬 검색 후 결과 병합.
     """
 
     async def search(
@@ -35,42 +35,48 @@ class UnifiedSearchService:
         events_limit: int = None
     ) -> Dict[str, Any]:
         """Multi-Source 검색 수행.
-        
+
         Args:
             project_id: 프로젝트 ID
             query_embedding: 쿼리 임베딩 (3072차원)
             query_text: 원본 텍스트 쿼리 (텍스트 검색용)
             *_limit: 각 소스별 결과 수
-        
+
         Returns:
             {
-                "sections": [...],      # 본문 맥락
+                "sections": [...],      # 본문 맥락 (PostgreSQL 벡터)
                 "characters": [...],    # 관련 캐릭터 (Neo4j)
-                "events": [...]         # 관련 이벤트
+                "events": [...]         # 관련 이벤트 (Neo4j)
             }
         """
         sections_limit = sections_limit or settings.SEARCH_SECTIONS_LIMIT
         characters_limit = characters_limit or settings.SEARCH_CHARACTERS_LIMIT
         events_limit = events_limit or settings.SEARCH_EVENTS_LIMIT
 
-        # 병렬 검색 실행 (캐릭터는 Neo4j에서 검색)
+        loop = asyncio.get_event_loop()
+
+        # 병렬 검색 실행
+        # 1. PostgreSQL sections 벡터 검색
         section_task = postgres_service.search_sections(
             project_id, query_embedding, sections_limit
         )
-        event_task = postgres_service.search_events(
-            project_id, query_text, events_limit
-        )
 
-        # Neo4j 캐릭터 검색 (동기 함수이므로 run_in_executor 사용)
-        loop = asyncio.get_event_loop()
+        # 2. Neo4j 캐릭터 텍스트 검색 (동기 함수이므로 run_in_executor 사용)
         character_task = loop.run_in_executor(
             None,
             neo4j_service.search_characters,
             project_id, query_text, characters_limit
         )
 
-        sections, events, characters = await asyncio.gather(
-            section_task, event_task, character_task,
+        # 3. Neo4j 이벤트 텍스트 검색 (동기 함수)
+        event_task = loop.run_in_executor(
+            None,
+            neo4j_service.search_events,
+            project_id, query_text, events_limit
+        )
+
+        sections, characters, events = await asyncio.gather(
+            section_task, character_task, event_task,
             return_exceptions=True
         )
 
@@ -85,7 +91,7 @@ class UnifiedSearchService:
             logger.error(f"Events search error: {events}")
             events = []
 
-        # Threshold 필터링 (sections만, 벡터 검색 결과이므로)
+        # Threshold 필터링 (벡터 검색 결과만)
         sections = [s for s in sections if s.get("score", 0) >= settings.SEARCH_THRESHOLD]
 
         logger.info(
