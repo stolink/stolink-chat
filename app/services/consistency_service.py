@@ -197,18 +197,30 @@ class ConsistencyService:
         if not conflicts and not warnings:
             return ""
 
+        def get_attr(obj, attr, default=None):
+            if isinstance(obj, dict):
+                return obj.get(attr, default)
+            return getattr(obj, attr, default)
+
         parts = []
 
         if conflicts:
             parts.append("감지된 설정 충돌:")
             for i, c in enumerate(conflicts[:5], 1):
-                parts.append(f"{i}. [{c.type}]")
-                if c.existing:
-                    parts.append(f"   기존: {c.existing[:100]}")
-                if c.new_value:
-                    parts.append(f"   변경: {c.new_value[:100]}")
-                if c.suggestion:
-                    parts.append(f"   제안: {c.suggestion}")
+                c_type = get_attr(c, "type", "UNKNOWN")
+                parts.append(f"{i}. [{c_type}]")
+                
+                c_existing = get_attr(c, "existing")
+                if c_existing:
+                    parts.append(f"   기존: {c_existing[:100]}")
+                
+                c_new = get_attr(c, "new_value") or get_attr(c, "newValue")
+                if c_new:
+                    parts.append(f"   변경: {c_new[:100]}")
+                
+                c_suggestion = get_attr(c, "suggestion")
+                if c_suggestion:
+                    parts.append(f"   제안: {c_suggestion}")
 
         if warnings:
             parts.append("\n경고사항:")
@@ -232,21 +244,28 @@ class ConsistencyService:
         if not conflicts:
             return None
 
+        def get_attr(obj, attr, default=None):
+            if isinstance(obj, dict):
+                return obj.get(attr, default)
+            return getattr(obj, attr, default)
+
+        filtered_conflicts = conflicts[:5]
+        
         return {
             "type": "consistency",
             "data": {
                 "hasConflicts": True,
                 "count": len(conflicts),
-                "highSeverity": len([c for c in conflicts if c.severity == "HIGH"]),
+                "highSeverity": len([c for c in conflicts if get_attr(c, "severity") == "HIGH"]),
                 "conflicts": [
                     {
-                        "type": c.type,
-                        "severity": c.severity,
-                        "existing": c.existing[:200] if c.existing else None,
-                        "newValue": c.new_value[:200] if c.new_value else None,
-                        "suggestion": c.suggestion
+                        "type": get_attr(c, "type", "UNKNOWN"),
+                        "severity": get_attr(c, "severity", "MEDIUM"),
+                        "existing": (get_attr(c, "existing") or "")[:200] if get_attr(c, "existing") else None,
+                        "newValue": (get_attr(c, "new_value") or get_attr(c, "newValue") or "")[:200] if (get_attr(c, "new_value") or get_attr(c, "newValue")) else None,
+                        "suggestion": get_attr(c, "suggestion", "")
                     }
-                    for c in conflicts[:5]
+                    for c in filtered_conflicts
                 ]
             }
         }

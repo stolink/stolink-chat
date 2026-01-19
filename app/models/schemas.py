@@ -16,6 +16,7 @@ class ChatRequest(BaseModel):
     project_id: str
     user_id: str
     conversation_history: Optional[List[Dict[str, str]]] = []
+    context_data: Optional[Dict[str, Any]] = None
 
 
 class SourceChunk(BaseModel):

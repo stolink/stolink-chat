@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     AWS_BEDROCK_API_KEY_ID: str = ""
     AWS_BEDROCK_API_KEY_SECRET: str = ""
     AWS_DEFAULT_REGION: str = "us-east-1"
-    AWS_BEDROCK_MODEL_ID: str = "anthropic.claude-3-haiku-20240307-v1:0"
+    AWS_BEDROCK_MODEL_ID: str = "anthropic.claude-4.5-haiku-20250929-v1:0"
 
     # 임베딩 차원 (Gemini gemini-embedding-001)
     EMBEDDING_DIMENSION: int = 3072
