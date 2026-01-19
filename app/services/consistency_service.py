@@ -208,8 +208,14 @@ class ConsistencyService:
         if conflicts:
             parts.append("감지된 설정 충돌:")
             for i, c in enumerate(conflicts[:5], 1):
+                # Frontend may inject 'displayIndex' to preserve original report number
+                display_index = self._get_attr(c, "displayIndex", i)
                 c_type = self._get_attr(c, "type", "UNKNOWN")
-                parts.append(f"{i}. [{c_type}]")
+                parts.append(f"{display_index}. [{c_type}]")
+                
+                c_description = self._get_attr(c, "description")
+                if c_description:
+                    parts.append(f"   내용: {c_description}")
                 
                 c_existing = self._get_attr(c, "existing")
                 if c_existing:

@@ -401,8 +401,9 @@ class ChatService:
         if context.mode != ChatMode.PERSONA:
             intent_prompt = [
                 SystemMessage(content="""You are an intent classifier for a novel chatbot.
-Classify if the user's query is related to the novel (plot, characters, setting, writing advice) or if it is Out-of-Domain (general knowledge, coding, math, real-world news).
-Reply with 'Y' if related/safe, 'N' if Out-of-Domain."""),
+Classify if the user's query is related to the novel (plot, characters, setting, writing advice) or **consistency reports/conflicts**.
+Reply with 'Y' if related/safe, 'N' if Out-of-Domain.
+"Report" or "Conflict" questions are IN-DOMAIN."""),
                 HumanMessage(content=context.processed_message)
             ]
             intent_check = await self.llm.ainvoke(intent_prompt)
