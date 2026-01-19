@@ -92,12 +92,18 @@ class UnifiedSearchService:
             events = []
 
         # Threshold 필터링 (벡터 검색 결과만)
+        original_count = len(sections)
         sections = [s for s in sections if s.get("score", 0) >= settings.SEARCH_THRESHOLD]
 
         logger.info(
-            f"Multi-source search: sections={len(sections)}, "
+            f"Multi-source search result for project {project_id}: "
+            f"sections={len(sections)}/{original_count} (threshold={settings.SEARCH_THRESHOLD}), "
             f"characters={len(characters)}, events={len(events)}"
         )
+        
+        if sections:
+            for i, s in enumerate(sections[:2]):
+                logger.info(f"Top Section {i+1}: Score={s['score']:.4f}, Content={s['content'][:50]}...")
 
         return {
             "sections": sections,

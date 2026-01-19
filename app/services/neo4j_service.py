@@ -25,28 +25,33 @@ class Neo4jService:
         # Gemini embedding-001 모델의 차원 (3072)
         EMBEDDING_DIMENSION = 3072
 
+        # Neo4j 5.x 이상에서는 Cypher 명령어로 인덱스 생성을 권장합니다.
         index_query = f"""
-        CALL db.index.vector.createNodeIndex(
-            'chunk_embedding',
-            'Chunk',
-            'embedding',
-            {EMBEDDING_DIMENSION},
-            'cosine'
-        )
+        CREATE VECTOR INDEX chunk_embedding IF NOT EXISTS
+        FOR (n:Chunk) ON (n.embedding)
+        OPTIONS {{
+          indexConfig: {{
+            `vector.dimensions`: {EMBEDDING_DIMENSION},
+            `vector.similarity_function`: 'cosine'
+          }}
+        }}
         """
         try:
             with self.driver.session() as session:
                 session.run(index_query)
-                print(f"Vector index 'chunk_embedding' created successfully ({EMBEDDING_DIMENSION} dimensions).")
+                print(f"Vector index 'chunk_embedding' initialized (IF NOT EXISTS).")
         except Exception as e:
-            if "EquivalentIndexAlreadyExists" in str(e) or "Index already exists" in str(e):
-                print("Vector index 'chunk_embedding' already exists.")
-            elif "different dimension" in str(e).lower():
+            if "different dimension" in str(e).lower() or "already exists with different" in str(e).lower():
                 # 차원이 다른 인덱스가 존재하면 삭제 후 재생성
                 print("Existing index has different dimensions. Recreating...")
                 self._recreate_vector_index(EMBEDDING_DIMENSION)
             else:
-                print(f"Failed to create vector index: {e}")
+                # 일반적인 '이미 존재함' 오류는 IF NOT EXISTS로 해결되지만,
+                # 만약 프로시저 방식의 잔재나 다른 오류가 있다면 여기서 출력됩니다.
+                if "already exists" in str(e).lower():
+                    print("Vector index 'chunk_embedding' already exists.")
+                else:
+                    print(f"Failed to initialize vector index: {e}")
 
     def _recreate_vector_index(self, dimension: int):
         """기존 벡터 인덱스를 삭제하고 새 차원으로 재생성."""
@@ -56,15 +61,16 @@ class Neo4jService:
                 session.run("DROP INDEX chunk_embedding IF EXISTS")
                 print("Old vector index dropped.")
 
-                # 새 인덱스 생성
+                # 새 인덱스 생성 (Cypher 권장 문법)
                 session.run(f"""
-                    CALL db.index.vector.createNodeIndex(
-                        'chunk_embedding',
-                        'Chunk',
-                        'embedding',
-                        {dimension},
-                        'cosine'
-                    )
+                    CREATE VECTOR INDEX chunk_embedding
+                    FOR (n:Chunk) ON (n.embedding)
+                    OPTIONS {{
+                      indexConfig: {{
+                        `vector.dimensions`: {dimension},
+                        `vector.similarity_function`: 'cosine'
+                      }}
+                    }}
                 """)
                 print(f"New vector index created with {dimension} dimensions.")
         except Exception as e:
@@ -140,25 +146,25 @@ class Neo4jService:
         limit: int = 5
     ) -> List[Dict[str, Any]]:
         """Neo4j에서 캐릭터 노드 텍스트 검색.
-        
+
         쿼리를 단어별로 분리하여 각 단어가 이름에 포함된 캐릭터를 검색.
-        
+
         Args:
             project_id: 프로젝트 ID
             query: 검색 쿼리 (캐릭터 이름, 역할, 백스토리 등)
             limit: 반환할 결과 수
-        
+
         Returns:
             [{"id": str, "name": str, "role": str, "backstory": str, ...}, ...]
         """
         import re
-        
+
         # 한글 조사 패턴 (일반적인 조사들)
         KOREAN_PARTICLES = r'(이|가|을|를|은|는|의|와|과|랑|이랑|에게|한테|께|로|으로|에서|부터|까지|도|만|조차|마저)$'
-        
+
         # 쿼리에서 2자 이상 단어 추출 (한글, 영문)
         raw_words = re.findall(r'[가-힣a-zA-Z]{2,}', query)
-        
+
         # 한글 조사 제거
         words = []
         for word in raw_words:
@@ -166,21 +172,23 @@ class Neo4jService:
             # 조사 제거 후에도 2자 이상인 경우만 추가
             if len(cleaned) >= 2:
                 words.append(cleaned)
-        
+
         if not words:
             words = raw_words if raw_words else [query]
-        
+
         logger.info(f"Character search words (after removing particles): {words}")
-        
+
         # 각 단어에 대해 OR 조건으로 검색
         # Cypher에서 동적 OR 조건을 만들기 위해 ANY() 사용
         cypher = """
         MATCH (c:Character)
         WHERE c.project_id = $project_id
-          AND ANY(word IN $words WHERE 
+          AND ANY(word IN $words WHERE
             toLower(c.name) CONTAINS toLower(word)
             OR toLower(coalesce(c.backstory, '')) CONTAINS toLower(word)
           )
+          AND NOT toLower(coalesce(c.backstory, '')) CONTAINS 'auto-generated from event participant'
+          AND NOT toLower(coalesce(c.description, '')) CONTAINS 'auto-generated from event participant'
         RETURN c.id as id,
                c.name as name,
                c.role as role,
@@ -189,11 +197,11 @@ class Neo4jService:
                c.faction as faction
         LIMIT $limit
         """
-        
+
         self._ensure_driver()
         if not self.driver:
             return []
-        
+
         with self.driver.session() as session:
             try:
                 result = session.run(cypher, project_id=project_id, words=words, limit=limit)
@@ -216,21 +224,21 @@ class Neo4jService:
                 return []
 
     def get_relationship_between(
-        self, 
-        project_id: str, 
-        character_id_1: str, 
+        self,
+        project_id: str,
+        character_id_1: str,
         character_id_2: str
     ) -> Optional[Dict[str, Any]]:
         """두 캐릭터 간의 관계 정보를 Neo4j에서 조회.
-        
+
         양방향 조회: (A→B) 또는 (B→A) 중 하나가 존재하면 반환.
         관계 엣지 타입: RELATED_TO (단일 타입)
-        
+
         Args:
             project_id: 프로젝트 ID
             character_id_1: 첫 번째 캐릭터 ID
             character_id_2: 두 번째 캐릭터 ID
-        
+
         Returns:
             {
                 "id": int,
@@ -267,17 +275,17 @@ class Neo4jService:
                rel.revealedInChapter as revealedInChapter
         LIMIT 1
         """
-        
+
         self._ensure_driver()
         if not self.driver:
             return None
-        
+
         with self.driver.session() as session:
             try:
                 result = session.run(
-                    query, 
+                    query,
                     project_id=project_id,
-                    char_id_1=character_id_1, 
+                    char_id_1=character_id_1,
                     char_id_2=character_id_2
                 )
                 record = result.single()
@@ -345,6 +353,8 @@ class Neo4jService:
             OR toLower(coalesce(e.narrativeSummary, '')) CONTAINS toLower(word)
             OR toLower(coalesce(e.eventType, '')) CONTAINS toLower(word)
           )
+          AND NOT toLower(coalesce(e.description, '')) CONTAINS 'auto-generated from event participant'
+          AND NOT toLower(coalesce(e.narrativeSummary, '')) CONTAINS 'auto-generated from event participant'
         RETURN e.eventId as id,
                e.description as description,
                e.narrativeSummary as narrativeSummary,
