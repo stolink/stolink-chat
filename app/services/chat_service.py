@@ -45,6 +45,7 @@ class ChatContext:
     conflicts: Optional[List] = None
     original_message: str = ""
     processed_message: str = ""
+    injected_data: Optional[Dict[str, Any]] = None
 
 
 # 관계 질문 감지용 키워드
@@ -103,14 +104,20 @@ class ChatService:
         message: str,
         project_id: str,
         mode: ChatMode,
-        character_name: Optional[str] = None
+        character_name: Optional[str] = None,
+        context_data: Optional[Dict[str, Any]] = None
     ) -> ChatContext:
         """채팅 컨텍스트 구축."""
         context = ChatContext(
             mode=mode,
             original_message=message,
-            processed_message=message
+            processed_message=message,
+            injected_data=context_data
         )
+
+        # Inject explicit conflicts immediately
+        if context_data and context_data.get("conflicts"):
+             context.conflicts = context_data["conflicts"]
 
         # 페르소나 모드: 캐릭터 정보 로드
         if mode == ChatMode.PERSONA and character_name:
@@ -182,6 +189,11 @@ class ChatService:
                 context.conflicts
             )
 
+        if context.injected_data:
+            injected_text = self._format_injected_context(context.injected_data)
+            if injected_text:
+                context_text = injected_text + "\n\n" + context_text
+
         return f"""당신은 소설 작품 전용 AI 어시스턴트입니다.
 작가의 '세컨드 브레인'으로서 소설 세계관, 캐릭터, 스토리에 대해 정확하고 통찰력 있는 답변을 제공합니다.
 
@@ -201,6 +213,50 @@ class ChatService:
 - 불확실한 정보: "작품 내 명시되지 않았지만..." 형식으로 구분
 - 설정 충돌 발견 시: 명확히 알림
 """
+
+    def _get_attr(self, obj: Any, attr: str, default: Any = None) -> Any:
+        """객체 속성 또는 딕셔너리 키 값 안전하게 조회."""
+        if isinstance(obj, dict):
+            return obj.get(attr, default)
+        return getattr(obj, attr, default)
+
+    def _format_injected_context(self, injected_data: Dict[str, Any]) -> str:
+        """사용자가 직접 언급한(태그한) 정보 포맷팅."""
+        parts = []
+
+        # Characters
+        if injected_data.get("characters"):
+            parts.append("### 🏷️ 언급된 캐릭터 (User Mentioned)")
+            for c in injected_data["characters"]:
+                # Frontend Character object structure safety check
+                profile = self._get_attr(c, "profile", {})
+                
+                # Check profile type safely
+                if isinstance(profile, dict):
+                    name = profile.get("name", "Unknown")
+                else:
+                    name = getattr(profile, "name", "Unknown")
+                    
+                # Fallback to direct name attribute if profile lookup failed/empty
+                if name == "Unknown":
+                    name = self._get_attr(c, "name", "Unknown")
+                    
+                role = self._get_attr(c, "role", "")
+                parts.append(f"- **{name}** ({role})")
+            parts.append("")
+
+        # Events
+        if injected_data.get("events"):
+            parts.append("### 🏷️ 언급된 사건 (User Mentioned)")
+            for e in injected_data["events"]:
+                summary = (self._get_attr(e, "narrative_summary") or 
+                          self._get_attr(e, "narrativeSummary") or 
+                          self._get_attr(e, "description") or 
+                          self._get_attr(e, "event_type", "Event"))
+                parts.append(f"- {summary}")
+            parts.append("")
+
+        return "\n".join(parts)
 
     def _format_rich_context(self, search_results: Dict[str, Any]) -> str:
         """풍부한 컨텍스트 포맷팅."""
@@ -311,7 +367,8 @@ class ChatService:
         message: str,
         project_id: str,
         session_id: str,
-        user_id: str = None
+        user_id: str = None,
+        context_data: Optional[Dict[str, Any]] = None
     ) -> AsyncGenerator[str, None]:
         """스트리밍 채팅 응답 생성."""
         collected_cards = []
@@ -331,7 +388,7 @@ class ChatService:
         logger.info(f"Chat mode: {mode.value}, character: {character_name}")
 
         # 2. 컨텍스트 구축
-        context = await self._build_context(message, project_id, mode, character_name)
+        context = await self._build_context(message, project_id, mode, character_name, context_data)
 
         # 3. 페르소나 모드: 카드 전송
         if context.mode == ChatMode.PERSONA and context.persona_context:
@@ -344,8 +401,9 @@ class ChatService:
         if context.mode != ChatMode.PERSONA:
             intent_prompt = [
                 SystemMessage(content="""You are an intent classifier for a novel chatbot.
-Classify if the user's query is related to the novel (plot, characters, setting, writing advice) or if it is Out-of-Domain (general knowledge, coding, math, real-world news).
-Reply with 'Y' if related/safe, 'N' if Out-of-Domain."""),
+Classify if the user's query is related to the novel (plot, characters, setting, writing advice) or **consistency reports/conflicts**.
+Reply with 'Y' if related/safe, 'N' if Out-of-Domain.
+"Report" or "Conflict" questions are IN-DOMAIN."""),
                 HumanMessage(content=context.processed_message)
             ]
             intent_check = await self.llm.ainvoke(intent_prompt)
