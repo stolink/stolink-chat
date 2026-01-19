@@ -11,7 +11,7 @@ class Settings(BaseSettings):
 
     # 환경 설정 (local, dev, production)
     APP_ENV: str = "local"
-    
+
     # AWS Bedrock 설정 (Claude 3 Haiku)
     # 표준 AWS 변수명 지원
     AWS_ACCESS_KEY_ID: str = ""
@@ -21,10 +21,10 @@ class Settings(BaseSettings):
     AWS_BEDROCK_API_KEY_SECRET: str = ""
     AWS_DEFAULT_REGION: str = "us-east-1"
     AWS_BEDROCK_MODEL_ID: str = "anthropic.claude-3-haiku-20240307-v1:0"
-    
+
     # 임베딩 차원 (Gemini gemini-embedding-001)
     EMBEDDING_DIMENSION: int = 3072
-    
+
     NEO4J_URI: str = "bolt://localhost:7687"
     NEO4J_USER: str = "neo4j"
     NEO4J_PASSWORD: str = "password"
@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     SEARCH_CHARACTERS_LIMIT: int = 5
     SEARCH_EVENTS_LIMIT: int = 5
     SEARCH_FINAL_LIMIT: int = 10
-    SEARCH_THRESHOLD: float = 0.4
+    SEARCH_THRESHOLD: float = 0.6
 
     # JWT 설정 (Spring 백엔드와 동일한 값 사용)
     JWT_SECRET: str = ""  # 환경변수로 설정 필수
@@ -62,16 +62,16 @@ class Settings(BaseSettings):
     @property
     def redis_url_with_scheme(self) -> str:
         """Ensure Redis URL has proper scheme (redis://, rediss://, or unix://).
-        
+
         Auto-fixes bare host:port URLs (e.g., AWS ElastiCache Serverless format)
         by prepending 'redis://' scheme.
         """
         url = self.REDIS_URL
-        
+
         # If already has scheme, return as-is
         if url.startswith(("redis://", "rediss://", "unix://")):
             return url
-        
+
         # Auto-fix: prepend redis:// for bare host:port or host
         return f"rediss://{url}"
 
