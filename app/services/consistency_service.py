@@ -180,6 +180,12 @@ class ConsistencyService:
 
         return relevant_conflicts
 
+    def _get_attr(self, obj: Any, attr: str, default: Any = None) -> Any:
+        """객체 속성 또는 딕셔너리 키 값 안전하게 조회."""
+        if isinstance(obj, dict):
+            return obj.get(attr, default)
+        return getattr(obj, attr, default)
+
     def format_conflicts_for_prompt(
         self,
         conflicts: List[ConflictInfo],
@@ -202,13 +208,26 @@ class ConsistencyService:
         if conflicts:
             parts.append("감지된 설정 충돌:")
             for i, c in enumerate(conflicts[:5], 1):
-                parts.append(f"{i}. [{c.type}]")
-                if c.existing:
-                    parts.append(f"   기존: {c.existing[:100]}")
-                if c.new_value:
-                    parts.append(f"   변경: {c.new_value[:100]}")
-                if c.suggestion:
-                    parts.append(f"   제안: {c.suggestion}")
+                # Frontend may inject 'displayIndex' to preserve original report number
+                display_index = self._get_attr(c, "displayIndex", i)
+                c_type = self._get_attr(c, "type", "UNKNOWN")
+                parts.append(f"{display_index}. [{c_type}]")
+                
+                c_description = self._get_attr(c, "description")
+                if c_description:
+                    parts.append(f"   내용: {c_description}")
+                
+                c_existing = self._get_attr(c, "existing")
+                if c_existing:
+                    parts.append(f"   기존: {c_existing[:100]}")
+                
+                c_new = self._get_attr(c, "new_value") or self._get_attr(c, "newValue")
+                if c_new:
+                    parts.append(f"   변경: {c_new[:100]}")
+                
+                c_suggestion = self._get_attr(c, "suggestion")
+                if c_suggestion:
+                    parts.append(f"   제안: {c_suggestion}")
 
         if warnings:
             parts.append("\n경고사항:")
@@ -232,21 +251,23 @@ class ConsistencyService:
         if not conflicts:
             return None
 
+        filtered_conflicts = conflicts[:5]
+        
         return {
             "type": "consistency",
             "data": {
                 "hasConflicts": True,
                 "count": len(conflicts),
-                "highSeverity": len([c for c in conflicts if c.severity == "HIGH"]),
+                "highSeverity": len([c for c in conflicts if self._get_attr(c, "severity") == "HIGH"]),
                 "conflicts": [
                     {
-                        "type": c.type,
-                        "severity": c.severity,
-                        "existing": c.existing[:200] if c.existing else None,
-                        "newValue": c.new_value[:200] if c.new_value else None,
-                        "suggestion": c.suggestion
+                        "type": self._get_attr(c, "type", "UNKNOWN"),
+                        "severity": self._get_attr(c, "severity", "MEDIUM"),
+                        "existing": (self._get_attr(c, "existing") or "")[:200] if self._get_attr(c, "existing") else None,
+                        "newValue": (self._get_attr(c, "new_value") or self._get_attr(c, "newValue") or "")[:200] if (self._get_attr(c, "new_value") or self._get_attr(c, "newValue")) else None,
+                        "suggestion": self._get_attr(c, "suggestion", "")
                     }
-                    for c in conflicts[:5]
+                    for c in filtered_conflicts
                 ]
             }
         }
