@@ -214,6 +214,12 @@ class ChatService:
 - 설정 충돌 발견 시: 명확히 알림
 """
 
+    def _get_attr(self, obj: Any, attr: str, default: Any = None) -> Any:
+        """객체 속성 또는 딕셔너리 키 값 안전하게 조회."""
+        if isinstance(obj, dict):
+            return obj.get(attr, default)
+        return getattr(obj, attr, default)
+
     def _format_injected_context(self, injected_data: Dict[str, Any]) -> str:
         """사용자가 직접 언급한(태그한) 정보 포맷팅."""
         parts = []
@@ -222,10 +228,20 @@ class ChatService:
         if injected_data.get("characters"):
             parts.append("### 🏷️ 언급된 캐릭터 (User Mentioned)")
             for c in injected_data["characters"]:
-                # Frontend Character object structure
-                profile = c.get("profile", {})
-                name = profile.get("name", "Unknown") if isinstance(profile, dict) else c.get("name", "Unknown")
-                role = c.get("role", "")
+                # Frontend Character object structure safety check
+                profile = self._get_attr(c, "profile", {})
+                
+                # Check profile type safely
+                if isinstance(profile, dict):
+                    name = profile.get("name", "Unknown")
+                else:
+                    name = getattr(profile, "name", "Unknown")
+                    
+                # Fallback to direct name attribute if profile lookup failed/empty
+                if name == "Unknown":
+                    name = self._get_attr(c, "name", "Unknown")
+                    
+                role = self._get_attr(c, "role", "")
                 parts.append(f"- **{name}** ({role})")
             parts.append("")
 
@@ -233,7 +249,10 @@ class ChatService:
         if injected_data.get("events"):
             parts.append("### 🏷️ 언급된 사건 (User Mentioned)")
             for e in injected_data["events"]:
-                summary = e.get("narrative_summary") or e.get("narrativeSummary") or e.get("description") or e.get("event_type", "Event")
+                summary = (self._get_attr(e, "narrative_summary") or 
+                          self._get_attr(e, "narrativeSummary") or 
+                          self._get_attr(e, "description") or 
+                          self._get_attr(e, "event_type", "Event"))
                 parts.append(f"- {summary}")
             parts.append("")
 
